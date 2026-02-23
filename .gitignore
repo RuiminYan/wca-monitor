@@ -1,0 +1,22 @@
+# 隐私凭据
+config.json
+credentials.json
+token.json
+
+# 运行时缓存
+known_ids.json
+known_comp_ids.json
+known_wca_comp_ids.json
+cubing_competitions.json
+rankings_cache.json
+
+# Python
+__pycache__/
+*.pyc
+
+# 日志
+*.log
+
+# 临时文件
+explore_*.py
+*.2do
