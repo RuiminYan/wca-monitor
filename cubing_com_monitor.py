@@ -104,7 +104,7 @@ def send_bark_notification(cfg: dict, title: str, body: str, url: str):
 def main():
     cfg = load_config()
     known_ids = load_known_ids(KNOWN_COMPS_PATH)
-    poll_interval = cfg.get("comp_poll_interval", 900)
+    poll_interval = cfg.get("comp_poll_interval", 60)
     is_first_run = len(known_ids) == 0
 
     killer = GracefulKiller()

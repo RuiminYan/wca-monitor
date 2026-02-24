@@ -97,8 +97,8 @@ python wca_comp_monitor.py
 
 安装后会注册三个计划任务：
 - **WCA Record Monitor** — 周五至周一运行（比赛集中在周末）
-- **Cubing Competition Monitor** — 每天 0:00 启动，持续运行，每 15 分钟轮询
-- **WCA Competition Monitor** — 每天 0:00 启动，持续运行，每 15 分钟轮询（全球）
+- **Cubing Competition Monitor** — 每天 0:00 启动，持续运行，每 1 分钟轮询
+- **WCA Competition Monitor** — 每天 0:00 启动，持续运行，每 1 分钟轮询（全球）
 
 **Windows：**
 ```powershell
