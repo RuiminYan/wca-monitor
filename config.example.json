@@ -2,8 +2,7 @@
     "_note": "部署在你的服务器上，填写你的网站地址方便备忘",
     "bark_device_key": "在Bark App首页复制你的设备密钥",
     "bark_server": "https://api.day.app",
-    "poll_interval": 30,
-    "wca_comp_poll_interval": 900,
+    "poll_interval": 60,
     "tags": [
         "WR",
         "CR",

@@ -25,7 +25,7 @@
 {
   "bark_device_key": "你的设备密钥",
   "bark_server": "https://api.day.app",
-  "poll_interval": 30,
+  "poll_interval": 60,
   "tags": ["WR", "CR", "NR"],
   "nr_countries": ["CN", "US", "AU"]
 }
@@ -35,7 +35,7 @@
 |---|---|---|
 | `bark_device_key` | Bark 设备密钥（必填） | - |
 | `bark_server` | Bark 服务器地址 | `https://api.day.app` |
-| `poll_interval` | 轮询间隔（秒） | `30` |
+| `poll_interval` | 轮询间隔（秒） | `60` |
 | `tags` | 监控的纪录类型 | `["WR", "CR"]` |
 | `nr_countries` | NR 国家过滤（ISO2 代码） | `[]` |
 | `email_enabled` | 是否启用邮件通知 | `false` |
