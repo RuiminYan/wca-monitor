@@ -377,9 +377,9 @@ def format_record_message(record: dict) -> "Tuple[str, str]":
 
 # NOTE: send_bark_notification 已移至 monitor_utils.send_bark
 
-def send_bark_notification(config: dict, cn_text: str, en_text: str, url: str):
+def send_bark_notification(config: dict, cn_text: str, en_text: str, url: str) -> bool:
     """兼容包装：纪录监控的 Bark 推送（标题=中文，正文=英文）"""
-    send_bark(config, cn_text, en_text, url, "WCA Records", sound="multiwayinvitation")
+    return send_bark(config, cn_text, en_text, url, "WCA Records", sound="multiwayinvitation")
 
 
 # === 主循环 ===
@@ -428,24 +428,24 @@ def main():
             for record in important:
                 rid = record["id"]
                 if rid not in known_ids:
-                    known_ids.add(rid)
-                    new_count += 1
-
                     if is_first_run:
-                        # 首次运行不推送，只记录
+                        # 首次运行不推送，直接记录
+                        known_ids.add(rid)
+                        new_count += 1
                         continue
 
                     cn_text, en_text, url = format_record_message(record)
                     log.info(f"🆕 新纪录: {cn_text}")
 
-                    try:
-                        send_bark_notification(config, cn_text, en_text, url)
-                    except Exception as e:
-                        log.error(f"Bark 推送失败: {e}")
-
-                    # NOTE: 邮件只发 WR，CR/NR 不发邮件
-                    if record["tag"] == "WR":
-                        send_email(config, cn_text, f"{en_text}\n\n{url}", recipients_key="email_recipients_record")
+                    # NOTE: 只有 Bark 推送成功才标记为已知，失败时下次轮询会重试
+                    if send_bark_notification(config, cn_text, en_text, url):
+                        known_ids.add(rid)
+                        new_count += 1
+                        # NOTE: 邮件只发 WR，CR/NR 不发邮件
+                        if record["tag"] == "WR":
+                            send_email(config, cn_text, f"{en_text}\n\n{url}", recipients_key="email_recipients_record")
+                    else:
+                        log.warning(f"  推送失败，下次轮询将重试: {rid}")
 
             if is_first_run and new_count > 0:
                 log.info(f"首次运行，静默记录了 {new_count} 条现有纪录（不推送）")

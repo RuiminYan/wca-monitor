@@ -96,9 +96,9 @@ def format_comp_message(comp: dict) -> "Tuple[str, str, str]":
     return title, body, url
 
 
-def send_bark_notification(cfg: dict, title: str, body: str, url: str):
+def send_bark_notification(cfg: dict, title: str, body: str, url: str) -> bool:
     """兼容包装：粗饼比赛的 Bark 推送"""
-    send_bark(cfg, title, body, url, "cubing-comp")
+    return send_bark(cfg, title, body, url, "cubing-comp")
 
 
 def main():
@@ -137,9 +137,12 @@ def main():
                 for comp in new_comps:
                     title, body, url = format_comp_message(comp)
                     log.info("  %s - %s", title, body)
-                    send_bark_notification(cfg, title, body, url)
-                    send_email(cfg, title, f"{body}\n\n{url}", recipients_key="email_recipients_competition")
-                    known_ids.add(comp["id"])
+                    # NOTE: 只有 Bark 推送成功才标记为已知，失败时下次轮询会重试
+                    if send_bark_notification(cfg, title, body, url):
+                        send_email(cfg, title, f"{body}\n\n{url}", recipients_key="email_recipients_competition")
+                        known_ids.add(comp["id"])
+                    else:
+                        log.warning("  推送失败，下次轮询将重试: %s", comp["name"])
                 save_known_ids(KNOWN_COMPS_PATH, known_ids)
                 # 更新完整比赛列表 JSON
                 try:

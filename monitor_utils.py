@@ -106,9 +106,9 @@ def save_known_ids(path: Path, ids: set):
 # === Bark 推送 ===
 
 def send_bark(cfg: dict, title: str, body: str, url: str, group: str, *,
-              sound: str = None, level: str = "timeSensitive"):
+              sound: str = None, level: str = "timeSensitive") -> bool:
     """
-    通用 Bark 推送。
+    通用 Bark 推送。返回是否成功。
     各监控脚本通过 group 参数区分通知分组：
       - "WCA Records" — 纪录监控
       - "cubing-comp" — 粗饼比赛监控
@@ -134,10 +134,12 @@ def send_bark(cfg: dict, title: str, body: str, url: str, group: str, *,
         result = resp.json()
         if result.get("code") != 200:
             log.warning("Bark push abnormal: %s", result)
-        else:
-            log.info("✅ Bark pushed: %s", title)
+            return False
+        log.info("✅ Bark pushed: %s", title)
+        return True
     except requests.RequestException as e:
         log.warning("Bark push error: %s", e)
+        return False
 
 
 # === 国旗 Emoji ===
