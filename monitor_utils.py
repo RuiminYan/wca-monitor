@@ -80,10 +80,10 @@ def load_config() -> dict:
     cfg.setdefault("tags", ["WR", "CR"])
     # NR 国家过滤
     cfg.setdefault("nr_countries", [])
-    # 粗饼比赛监控默认 15 分钟
-    cfg.setdefault("comp_poll_interval", 900)
-    # WCA 比赛监控默认 15 分钟
-    cfg.setdefault("wca_comp_poll_interval", 900)
+    # 粗饼比赛监控默认 1 分钟
+    cfg.setdefault("comp_poll_interval", 60)
+    # WCA 比赛监控默认 1 分钟
+    cfg.setdefault("wca_comp_poll_interval", 60)
     return cfg
 
 
