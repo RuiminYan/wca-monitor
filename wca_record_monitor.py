@@ -71,6 +71,11 @@ RECORDS_QUERY = """
           competition {
             id
             name
+            venues {
+              country {
+                iso2
+              }
+            }
           }
         }
       }
@@ -314,12 +319,17 @@ def format_record_message(record: dict) -> "Tuple[str, str]":
     event = round_obj["competitionEvent"]["event"]
     competition = round_obj["competitionEvent"]["competition"]
 
+    # 比赛所在国家（从第一个 venue 获取）
+    venues = competition.get("venues", [])
+    comp_iso2 = venues[0]["country"]["iso2"] if venues else ""
+    comp_flag = country_flag(comp_iso2)
+
     iso2 = person["country"]["iso2"]
     cn_name, en_name = split_name(person["name"], iso2)
     flag = country_flag(iso2)
     event_name = event["name"]
     event_id = event["id"]
-    comp_name = competition["name"]
+    comp_name = f"{competition['name']}{comp_flag}"
     time_str = format_time(record["attemptResult"], event_id)
 
     cn_event = EVENT_CN_MAP.get(event_name, event_name)
