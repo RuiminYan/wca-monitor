@@ -314,12 +314,16 @@ def find_competition_by_result(
         comps = r2.json()
         print(f"  获取到 {len(comps)} 场比赛")
 
+        # 记录最后一场比赛日期，用于 WCA Live 最新比赛查找
+        last_date = comps[-1]["start_date"] if comps else "2000-01-01"
+
         for comp in comps:
             if comp["id"] == target_comp_id:
                 return {
                     "comp_id": comp["id"],
                     "comp_name": comp["name"],
                     "comp_country_iso2": comp["country_iso2"],
+                    "rest_last_date": last_date,
                 }
 
         # 比赛没在列表里（成绩还没上传到 WCA 官网），用 ID 作为名字
@@ -327,9 +331,66 @@ def find_competition_by_result(
             "comp_id": target_comp_id,
             "comp_name": target_comp_id,
             "comp_country_iso2": "",
+            "rest_last_date": last_date,
         }
     except Exception as e:
         print(f"  WCA API 查成绩失败: {e}")
+        return None
+
+
+WCA_LIVE_API = "https://live.worldcubeassociation.org/api"
+
+
+def find_latest_live_competition(
+    wca_id: str, rest_last_date: str
+) -> dict | None:
+    """
+    从 WCA Live 查找选手注册的比 rest_last_date 更新的比赛。
+    按日期从最近到最远搜索，找到第一场就返回。
+    返回 {comp_id, comp_name, comp_country_iso2} 或 None。
+    """
+    try:
+        # 拿 WCA Live 全部比赛列表
+        q = """{ competitions { id name startDate endDate
+                  venues { country { iso2 } } } }"""
+        r = requests.post(WCA_LIVE_API, json={"query": q}, timeout=10)
+        live_comps = r.json().get("data", {}).get("competitions", [])
+
+        # 筛选 startDate 在 rest_last_date 之后且 <= 今天（排除未来比赛）
+        from datetime import date
+        today = date.today().isoformat()
+        newer = [c for c in live_comps
+                 if c["startDate"] > rest_last_date and c["startDate"] <= today]
+
+        if not newer:
+            return None
+
+        # 按日期从最近到最远排序
+        newer.sort(key=lambda c: c["startDate"], reverse=True)
+        print(f"  WCA Live: {len(newer)} 场新比赛，检查选手注册...")
+
+        # NOTE: 逐场查 competitors，最多查 10 场避免太慢
+        for comp in newer[:10]:
+            q2 = '{ competition(id: "%s") { competitors { wcaId } } }' % comp["id"]
+            r2 = requests.post(WCA_LIVE_API, json={"query": q2}, timeout=5)
+            data = r2.json()
+            if "errors" in data:
+                continue
+            competitors = data.get("data", {}).get("competition", {}).get("competitors", [])
+            if any(c.get("wcaId") == wca_id for c in competitors):
+                iso2 = ""
+                if comp.get("venues"):
+                    iso2 = comp["venues"][0].get("country", {}).get("iso2", "")
+                print(f"  WCA Live 找到: {comp['name']} ({comp['startDate']})")
+                return {
+                    "comp_id": str(comp["id"]),
+                    "comp_name": comp["name"],
+                    "comp_country_iso2": iso2,
+                }
+
+        return None
+    except Exception as e:
+        print(f"  WCA Live 查比赛失败: {e}")
         return None
 
 
@@ -459,6 +520,7 @@ def fallback_wca_api(
     time_cs = _time_str_to_centiseconds(parts["time_str"])
     person = candidates[0]
     comp = None
+    rest_last_date = "2000-01-01"  # REST API 最后一场比赛的日期
 
     if time_cs:
         is_avg = parts["rec_type"] == "average"
@@ -470,9 +532,16 @@ def fallback_wca_api(
             if result:
                 person = candidate
                 comp = result
+                # 记录 REST API 最后一场日期，用于后续 WCA Live 查询
+                rest_last_date = result.get("rest_last_date", rest_last_date)
                 break
     else:
         print(f"  找到: {person['name']} ({person['country_iso2']})")
+
+    # NOTE: WCA REST API 成绩有几天延迟。用 WCA Live 检查是否有更新的比赛
+    live_comp = find_latest_live_competition(person["wca_id"], rest_last_date)
+    if live_comp:
+        comp = live_comp
 
     if comp:
         print(f"  比赛: {comp['comp_name']}")
