@@ -6,7 +6,7 @@
 
 用法：
   python gen_title.py                           # 交互模式
-  python gen_title.py "5.55 3x3 NR Avg" "Nahm"  # 命令行模式
+  python gen_title.py "5.55 3x3 NR Avg Nahm"    # 命令行模式
   python gen_title.py --list                     # 列出所有近期纪录
 """
 
