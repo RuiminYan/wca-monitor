@@ -1,8 +1,8 @@
 """
-纪录标题生成工具
+WCA 比赛视频标题生成工具
 
-从 WCA Live 的 recentRecords 中匹配目标纪录，生成符合纪录快讯模板的中英文标题。
-用于转发 WCA 纪录视频时快速生成规范标题。
+优先从 WCA Live recentRecords 匹配纪录并生成纪录快讯标题。
+如果不是纪录视频，则回退到 WCA REST API 查询选手和比赛信息，组装通用标题。
 
 用法：
   python gen_title.py                           # 交互模式
@@ -18,13 +18,17 @@ import sys
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
+import requests
+
 from wca_record_monitor import (
     query_recent_records,
     format_record_message,
     format_time,
+    EVENT_CN_MAP,
     EVENT_EN_MAP,
 )
 from wca_rankings import RANKINGS
+from monitor_utils import country_flag
 
 
 # 将用户输入的项目缩写映射到 WCA event name
@@ -210,6 +214,252 @@ def list_all_records(records: list[dict]):
     print()
 
 
+# === WCA REST API 回退逻辑 ===
+# NOTE: 当 WCA Live recentRecords 匹配失败时（非纪录视频），
+# 用 WCA REST API 查询选手信息和比赛历史来组装通用标题。
+
+WCA_API = "https://www.worldcubeassociation.org/api/v0"
+
+# WCA API event_id → event full name 的映射
+_EVENT_ID_TO_NAME = {
+    "222": "2x2x2 Cube", "333": "3x3x3 Cube", "444": "4x4x4 Cube",
+    "555": "5x5x5 Cube", "666": "6x6x6 Cube", "777": "7x7x7 Cube",
+    "333bf": "3x3x3 Blindfolded", "333fm": "3x3x3 Fewest Moves",
+    "333oh": "3x3x3 One-Handed", "clock": "Clock", "minx": "Megaminx",
+    "pyram": "Pyraminx", "skewb": "Skewb", "sq1": "Square-1",
+    "444bf": "4x4x4 Blindfolded", "555bf": "5x5x5 Blindfolded",
+    "333mbf": "3x3x3 Multi-Blind",
+}
+
+
+def search_wca_person(name: str) -> dict | None:
+    """
+    用 WCA REST API 搜索选手，返回 {wca_id, name, country_iso2} 或 None。
+    只取 persons_table 中的第一个结果。
+    """
+    try:
+        r = requests.get(
+            f"{WCA_API}/search/users",
+            params={"q": name, "persons_table": "true"},
+            timeout=10,
+        )
+        r.raise_for_status()
+        results = r.json().get("result", [])
+        if not results:
+            return None
+        p = results[0]
+        return {
+            "wca_id": p["wca_id"],
+            "name": p["name"],
+            "country_iso2": p["country_iso2"],
+        }
+    except Exception as e:
+        print(f"  WCA API 搜人失败: {e}")
+        return None
+
+
+def find_competition_by_result(
+    wca_id: str, time_cs: int, event_id: str, is_average: bool
+) -> dict | None:
+    """
+    用 WCA REST API 查选手成绩，反查出对应的比赛。
+    time_cs: 成绩（厘秒），event_id: WCA 项目 ID（如 '333'），
+    is_average: True=查 average，False=查 best。
+    返回 {comp_id, comp_name, comp_country_iso2} 或 None。
+    """
+    try:
+        # 查选手全部成绩记录
+        r = requests.get(f"{WCA_API}/persons/{wca_id}/results", timeout=10)
+        r.raise_for_status()
+        all_results = r.json()
+
+        # 按成绩 + 项目过滤
+        field = "average" if is_average else "best"
+        matching_comps = []
+        for res in all_results:
+            if res["event_id"] == event_id and res.get(field) == time_cs:
+                matching_comps.append(res["competition_id"])
+
+        if not matching_comps:
+            return None
+
+        # 取最后一个（最近的比赛），API 结果按时间顺序排列
+        target_comp_id = matching_comps[-1]
+
+        # 查比赛详情
+        r2 = requests.get(f"{WCA_API}/persons/{wca_id}/competitions", timeout=10)
+        r2.raise_for_status()
+        comps = r2.json()
+
+        for comp in comps:
+            if comp["id"] == target_comp_id:
+                return {
+                    "comp_id": comp["id"],
+                    "comp_name": comp["name"],
+                    "comp_country_iso2": comp["country_iso2"],
+                }
+
+        # 比赛没在列表里（成绩还没上传到 WCA 官网），用 ID 作为名字
+        return {
+            "comp_id": target_comp_id,
+            "comp_name": target_comp_id,
+            "comp_country_iso2": "",
+        }
+    except Exception as e:
+        print(f"  WCA API 查成绩失败: {e}")
+        return None
+
+
+def _extract_title_parts(keywords: list[str]) -> dict:
+    """
+    从关键词列表中分离出 成绩/项目/类型/选手名。
+    返回 {time_str, event_name, event_id, rec_type, person_name}。
+    """
+    time_str = None
+    event_name = None
+    event_id = None
+    rec_type = "single"  # 默认
+    name_parts = []
+
+    for kw in keywords:
+        kw_lower = kw.lower()
+
+        # 成绩：匹配数字格式（如 4.89, 1:23.45）
+        if re.match(r"^\d+[.:][\d.]+$", kw) or re.match(r"^\d+\.\d+$", kw):
+            if not time_str:
+                time_str = kw
+            continue
+
+        # 项目：通过别名表匹配
+        matched = _EVENT_ALIAS.get(kw_lower)
+        if matched:
+            event_name = matched
+            # 反查 event_id
+            for eid, ename in _EVENT_ID_TO_NAME.items():
+                if ename == matched:
+                    event_id = eid
+                    break
+            continue
+
+        # 类型
+        if kw_lower in ("single", "s"):
+            rec_type = "single"
+            continue
+        if kw_lower in ("average", "avg", "a", "ao5", "mean", "mo3"):
+            rec_type = "average"
+            continue
+
+        # 其余当作选手名的一部分
+        name_parts.append(kw)
+
+    return {
+        "time_str": time_str,
+        "event_name": event_name or "3x3x3 Cube",
+        "event_id": event_id or "333",
+        "rec_type": rec_type,
+        "person_name": " ".join(name_parts) if name_parts else None,
+    }
+
+
+def _time_str_to_centiseconds(time_str: str) -> int | None:
+    """将时间字符串转换为厘秒。如 '4.89' → 489, '1:23.45' → 8345"""
+    try:
+        if ":" in time_str:
+            parts = time_str.split(":")
+            minutes = int(parts[0])
+            seconds = float(parts[1])
+            # NOTE: 用 round 而非 int 截断，避免浮点精度问题
+            # 例如 float('4.89') * 100 = 488.999...  int → 488  round → 489
+            return round((minutes * 60 + seconds) * 100)
+        else:
+            return round(float(time_str) * 100)
+    except (ValueError, IndexError):
+        return None
+
+
+def format_general_title(
+    time_str: str, event_name: str, rec_type: str,
+    person_name: str, person_iso2: str,
+    comp_name: str | None, comp_iso2: str | None,
+) -> tuple[str, str]:
+    """
+    组装通用中英文标题（不含纪录前缀）。
+    返回 (cn_title, en_title)。
+    """
+    event_cn = EVENT_CN_MAP.get(event_name, event_name)
+    event_en = EVENT_EN_MAP.get(event_name, event_name)
+    type_cn = "单次" if rec_type == "single" else "平均"
+    type_en = "Single" if rec_type == "single" else "Avg"
+    person_flag = country_flag(person_iso2) if person_iso2 else ""
+
+    cn = f"{time_str}{event_cn}{type_cn} {person_name}{person_flag}"
+    en = f"{time_str} {event_en} {type_en} {person_name}{person_flag}"
+
+    if comp_name:
+        comp_flag = country_flag(comp_iso2) if comp_iso2 else ""
+        cn += f" | {comp_name}{comp_flag}"
+        en += f" | {comp_name}{comp_flag}"
+
+    return cn, en
+
+
+def fallback_wca_api(keywords: list[str], write_dir: str | None) -> bool:
+    """
+    纪录匹配失败后的回退：用 WCA REST API 查询选手和比赛信息。
+    成功则输出/写入标题并返回 True，失败返回 False。
+    """
+    parts = _extract_title_parts(keywords)
+    if not parts["person_name"] or not parts["time_str"]:
+        return False
+
+    print(f"\n  回退: WCA API 查询 '{parts['person_name']}'...")
+    person = search_wca_person(parts["person_name"])
+    if not person:
+        print("  未找到 WCA 选手")
+        return False
+
+    print(f"  找到: {person['name']} ({person['country_iso2']})")
+
+    # 用成绩反查比赛
+    time_cs = _time_str_to_centiseconds(parts["time_str"])
+    comp = None
+    if time_cs:
+        is_avg = parts["rec_type"] == "average"
+        comp = find_competition_by_result(
+            person["wca_id"], time_cs, parts["event_id"], is_avg
+        )
+        if comp:
+            print(f"  比赛: {comp['comp_name']}")
+        else:
+            print("  未找到对应比赛成绩")
+
+    cn, en = format_general_title(
+        parts["time_str"], parts["event_name"], parts["rec_type"],
+        person["name"], person["country_iso2"],
+        comp["comp_name"] if comp else None,
+        comp["comp_country_iso2"] if comp else None,
+    )
+
+    print()
+    print(f"  标题: {cn}")
+    print(f"  正文: {en}")
+    print()
+
+    # 写入 info 文件
+    if write_dir:
+        from pathlib import Path
+        out = Path(write_dir)
+        for fname, content in [("info_chs.md", cn), ("info_eng.md", en)]:
+            fpath = out / fname
+            if fpath.exists() and fpath.read_text(encoding="utf-8").strip():
+                print(f"  跳过 {fname}（已有内容）")
+                continue
+            fpath.write_text(content + "\n", encoding="utf-8")
+            print(f"  已写入 {fname}: {content}")
+
+    return True
+
+
 def interactive_mode(records: list[dict]):
     """交互模式：循环输入关键词搜索纪录"""
     print("\n=== 纪录标题生成工具 ===")
@@ -302,6 +552,9 @@ def main():
 
         matches = find_matching_records(keywords, records)
         if not matches:
+            # NOTE: 纪录匹配失败 → 回退到 WCA API 查询
+            if fallback_wca_api(keywords, write_dir):
+                return
             if auto_mode:
                 print("未匹配到纪录，跳过")
                 return
