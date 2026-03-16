@@ -111,19 +111,19 @@ class RankingCache:
             return
 
         log.info("开始获取世界排名数据 (Top 100)，共 %d 个榜单...", len(EVENT_IDS) * 2)
-        count = 0
+        count = int(0)
         total = len(EVENT_IDS) * 2
-        idx = 0
+        idx = int(0)
 
         for event_id in EVENT_IDS:
             self._cache.setdefault(event_id, {})
             for type_name in ["single", "average"]:
-                idx += 1
+                idx += 1  # type: ignore
                 try:
                     data = self._fetch_top100(event_id, type_name)
                     if data:
                         self._cache[event_id][type_name] = data
-                        count += 1
+                        count += 1  # type: ignore
                         log.info(f"  [{idx}/{total}] {event_id}/{type_name} ✓ ({len(data['ranks'])} 条)")
                     else:
                         log.warning(f"  [{idx}/{total}] {event_id}/{type_name} ✗ (无数据)")
