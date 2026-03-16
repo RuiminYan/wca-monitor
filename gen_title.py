@@ -221,17 +221,16 @@ def print_formatted(record: dict):
     """打印格式化后的标题，可直接复制使用"""
     cn, en, url = format_record_message(record)
     print()
-    print(f"  标题: {cn}")
-    print(f"  正文: {en}")
+    print(f"  info_chs: {strip_prefix(cn)}")
+    print(f"  info_eng: {strip_prefix(en)}")
     print(f"  链接: {url}")
     print()
 
 
 def write_info_files(record: dict, out_dir: str):
     """
-    将中英文标题写入 info_chs.md 和 info_eng.md 的第一行。
-    去掉 "纪录快讯!/Breaking News!" 前缀。
-    如果文件已有非空内容则跳过，避免覆盖用户手动编辑。
+    将中英文标题写入 info_chs.md 和 info_eng.md。
+    去掉 "纪录快讯!/Breaking News!" 前缀，直接覆盖。
     """
     from pathlib import Path
     cn, en, url = format_record_message(record)
@@ -241,12 +240,6 @@ def write_info_files(record: dict, out_dir: str):
     out = Path(out_dir)
     for fname, content in [("info_chs.md", cn_title), ("info_eng.md", en_title)]:
         fpath = out / fname
-        # 如果文件已有非空内容，跳过
-        if fpath.exists():
-            existing = fpath.read_text(encoding="utf-8").strip()
-            if existing:
-                print(f"  跳过 {fname}（已有内容）")
-                continue
         fpath.write_text(content + "\n", encoding="utf-8")
         print(f"  已写入 {fname}: {content}")
 
