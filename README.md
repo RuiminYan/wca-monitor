@@ -160,6 +160,9 @@ python gen_title.py
 
 # 列出所有近期纪录
 python gen_title.py --list
+
+# 直接将生成的中英标题写入 upload-video 目录（配合自动化）：
+python gen_title.py "Nahm 5.55" --write D:\cube\upload-video --auto
 ```
 
 输出示例：
@@ -170,6 +173,7 @@ python gen_title.py --list
 ```
 
 > 只能匹配 WCA Live `recentRecords` 中的纪录（最近 ~200 条），已过期的纪录无法使用。
+> 使用 `--write` 写入 `info_chs.md` 和 `info_eng.md` 时，会自动去掉 `纪录快讯!` 前缀，以适配外部视频上传工具的标题需求。
 
 ## 通知格式
 
