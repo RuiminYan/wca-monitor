@@ -117,8 +117,8 @@ def _parse_keywords(text: str) -> list[str]:
     将用户输入拆分为关键词列表。
     保留数字（包括小数）、英文单词，去掉常见废词。
     """
-    # 用空格和常见分隔符拆分
-    tokens = re.split(r"[\s,|]+", text.strip())
+    # 用空格和常见分隔符拆分（包括 - 号）
+    tokens = re.split(r"[\s,|\-]+", text.strip())
     # NOTE: 去除方括号和圆括号，如 [3x3] → 3x3, (0.02 → 0.02
     tokens = [re.sub(r"[\[\]()]", "", t) for t in tokens]
     # 去除尾部标点，如 Average! → Average
@@ -129,7 +129,7 @@ def _parse_keywords(text: str) -> list[str]:
         "in", "at", "the", "a", "an", "of", "by", "new", "record",
         "breaking", "news", "official", "rubik's", "rubiks", "cube",
         "from", "pr", "pb", "wr", "nr", "cr",
-        "my", "best", "ever", "so", "close", "to",
+        "my", "best", "ever", "so", "close", "to", "solve",
     }
     return [t for t in tokens if t and t.lower() not in stopwords]
 
@@ -245,9 +245,11 @@ def search_wca_person(name: str) -> list[dict]:
     优先精确匹配名字，如果没有精确匹配则取第一个结果。
     """
     try:
+        # NOTE: YouTube 频道名常用连字符（如 Seung-Hyuk），WCA 用空格
+        search_name = name.replace("-", " ")
         r = requests.get(
             f"{WCA_API}/search/users",
-            params={"q": name, "persons_table": "true"},
+            params={"q": search_name, "persons_table": "true"},
             timeout=10,
         )
         r.raise_for_status()
@@ -255,10 +257,14 @@ def search_wca_person(name: str) -> list[dict]:
         if not results:
             return []
 
-        # NOTE: 优先精确匹配（如 "Brian Sun" == "Brian Sun"）。
-        # WCA 可能有重名选手，全部返回以便用成绩消歧。
-        name_lower = name.lower()
-        exact = [p for p in results if p["name"].lower() == name_lower]
+        # NOTE: 优先精确匹配。WCA 名字可能含括号内的本地名（如 "Seung Hyuk Nahm (남승혁)"），
+        # 比较时去掉括号部分和连字符。
+        search_lower = search_name.lower()
+        def _normalize(n: str) -> str:
+            """去掉括号内容和连字符"""
+            return re.sub(r"\s*\([^)]*\)", "", n).replace("-", " ").strip().lower()
+
+        exact = [p for p in results if _normalize(p["name"]) == search_lower]
 
         candidates = exact if exact else [results[0]]
         return [
@@ -360,7 +366,7 @@ def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> di
             continue
 
         # 类型
-        if kw_lower in ("single", "s"):
+        if kw_lower in ("single", "s", "solve"):
             rec_type = "single"
             continue
         if kw_lower in ("average", "avg", "a", "ao5", "mean", "mo3"):
@@ -370,13 +376,18 @@ def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> di
         # 其余当作选手名的一部分
         name_parts.append(kw)
 
+    # NOTE: uploader 优先：YouTube 频道名比从标题拆解更可靠
+    # 去除非拉丁字符（如韩文「남승혁」），只保留英文名
+    person = uploader if uploader else " ".join(name_parts)
+    if person:
+        person = re.sub(r"[^\x00-\x7F]+", "", person).strip()
+
     return {
         "time_str": time_str,
         "event_name": event_name or "3x3x3 Cube",
         "event_id": event_id or "333",
         "rec_type": rec_type,
-        # NOTE: uploader 优先：YouTube 频道名比从标题拆解更可靠
-        "person_name": uploader if uploader else " ".join(name_parts),
+        "person_name": person if person else None,
     }
 
 
