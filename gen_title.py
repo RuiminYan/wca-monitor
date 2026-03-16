@@ -602,8 +602,8 @@ def fallback_wca_api(
     )
 
     print()
-    print(f"  标题: {cn}")
-    print(f"  正文: {en}")
+    print(f"  info_chs: {cn}")
+    print(f"  info_eng: {en}")
     print()
 
     # 写入 info 文件
