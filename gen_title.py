@@ -8,6 +8,44 @@ WCA 比赛视频标题生成工具
   python gen_title.py                           # 交互模式
   python gen_title.py "5.55 3x3 NR Avg Nahm"    # 命令行模式
   python gen_title.py --list                     # 列出所有近期纪录
+  python gen_title.py "标题" --uploader "频道名"  # 用频道名查选手
+
+非纪录视频标题生成流程（fallback_wca_api）：
+
+  YouTube 视频标题 + 频道名(--uploader)
+          │
+          ▼
+  ┌─ _extract_title_parts ─────────────────────────┐
+  │  拆分标题 → 成绩/项目/类型                      │
+  │  选手名优先用 --uploader（去掉非拉丁字符）      │
+  └────────────────────────────────────────────────┘
+          │
+          ▼
+  ┌─ search_wca_person ────────────────────────────┐
+  │  WCA REST API 搜选手（连字符→空格）             │
+  │  精确名字匹配，重名时返回多个候选               │
+  └────────────────────────────────────────────────┘
+          │
+          ▼  逐个候选人
+  ┌─ find_competition_by_result ───────────────────┐
+  │  WCA REST API /persons/{id}/results            │
+  │  按成绩+项目匹配，取最后一条（最近比赛）        │
+  │  → 返回比赛名 + REST API 最后日期               │
+  └────────────────────────────────────────────────┘
+          │
+          ▼  REST API 成绩有几天延迟，用 WCA Live 补充
+  ┌─ find_latest_live_competition ─────────────────┐
+  │  WCA Live GraphQL: competitions(from: 日期)    │
+  │  一次查询拿到所有近期比赛 + competitors         │
+  │  本地匹配 wcaId → 如果有更新的比赛就覆盖       │
+  └────────────────────────────────────────────────┘
+          │
+          ▼
+  ┌─ format_general_title ─────────────────────────┐
+  │  组装双语标题:                                  │
+  │  CN: 1.14二阶魔方平均 Zayn🇺🇸 | TJHSST 2026🇺🇸  │
+  │  EN: 1.14 2x2 Avg Zayn🇺🇸 | TJHSST 2026🇺🇸     │
+  └────────────────────────────────────────────────┘
 """
 
 import io
