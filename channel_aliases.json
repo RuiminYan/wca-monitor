@@ -918,5 +918,377 @@
   "Mattheo de Wit": {
     "wca_id": "2015WITM01",
     "channel_id": "UCKcUeQJJfOZ4XC0VnhoMBpg"
+  },
+  "Matthew Patrohay": {
+    "wca_id": "2015PATR03",
+    "channel_id": "UC2vxZ2NtewxmhgRiVoPcHcw"
+  },
+  "Matěj Grohmann": {
+    "wca_id": "2015GROH02",
+    "channel_id": "UCohGGru0oA6ZOuK-ZZmqBlw"
+  },
+  "Maverick Pearson": {
+    "wca_id": "2014PEAR02",
+    "channel_id": "UCFlq-ANbZKwl4136sd4l10Q"
+  },
+  "Max Park": {
+    "wca_id": "2012PARK03",
+    "channel_id": "UCa6OfIE9IyrWYgovFMWGKCA"
+  },
+  "Max Siauw": {
+    "wca_id": "2017SIAU02",
+    "channel_id": "UCHV1K9ffQlMKhL1rB7P05Bg"
+  },
+  "Michael Eleftheriades": {
+    "wca_id": "2017ELEF02",
+    "channel_id": "UCd4R9YR69uLwq9znC8OAW4g"
+  },
+  "Michael Nielsen": {
+    "wca_id": "2017NIEL03",
+    "channel_id": "UCTBc9IVVapRu58Snh_KZzIw"
+  },
+  "Michael Tripodi": {
+    "wca_id": "2021TRIP01",
+    "channel_id": "UCR3wYVC65wzZe7rI8Zpm1ug"
+  },
+  "Michał Bogdan": {
+    "wca_id": "2012BOGD01",
+    "channel_id": "UCgJHwvZU1cMb_S7zAuR8qrw"
+  },
+  "Michał Denkiewicz": {
+    "wca_id": "2021DENK01",
+    "channel_id": "UCpaaHmkVmrTMwTMDYGYNfWA"
+  },
+  "Mick Boekema": {
+    "wca_id": "2022BOEK01",
+    "channel_id": "UCPhaYedfPo9aqXx1ZBbdFkw"
+  },
+  "Mihir Narayan": {
+    "wca_id": "2018NARA14",
+    "channel_id": "UCBo6UNKc6XRdTwL-vI7m7dg"
+  },
+  "Mika Smulders": {
+    "wca_id": "2016SMUL01",
+    "channel_id": "UCFnfPppEbpHk9mq7-WAbsew"
+  },
+  "Mikus Lembergs": {
+    "wca_id": "2017LEMB02",
+    "channel_id": "UC3NZaUarXnqdKf9DUi0Ad2w"
+  },
+  "Milo Jacquet": {
+    "wca_id": "2014JACQ01",
+    "channel_id": "UCNGkARdyrtjtWqjYJuOkbrg"
+  },
+  "Morgan Yeh": {
+    "wca_id": "2017YEHM01",
+    "channel_id": "UC9b3Yz3sRD7WbPcVzh4c6Ww"
+  },
+  "Muhammad Saleh Imtiaz": {
+    "wca_id": "2018IMTI01",
+    "channel_id": "UCJ0ji0VSq3RQ6n41MWdSRcw"
+  },
+  "Munkhchuluun Buyanduuren": {
+    "wca_id": "2019BUYA01",
+    "channel_id": "UCeOW6srr0eMvU1AVdpQAvqg"
+  },
+  "Nathaniel Ortega": {
+    "wca_id": "2015ORTE02",
+    "channel_id": "UCiC9yk17xySxGvUY3JQRpTQ"
+  },
+  "Netanel Pour": {
+    "wca_id": "2022POUR02",
+    "channel_id": "UCb2VDWvRtouHSEUbzGzZQnA"
+  },
+  "Niklas Aasen Eliasson": {
+    "wca_id": "2021ELIA01",
+    "channel_id": "UCEQASMqcG0JAlHSzM6jk2WA"
+  },
+  "Nipun Kisari": {
+    "wca_id": "2017KISA01",
+    "channel_id": "UC6ZIbk1GN92w1CvcMVkeZWQ"
+  },
+  "Noah Kraft": {
+    "wca_id": "2016KRAF01",
+    "channel_id": "UCTx4ARMdQKSO3MiLargGUkg"
+  },
+  "Noah Richardson": {
+    "wca_id": "2019RICH07",
+    "channel_id": "UCf8swKDQaBFOQ5Pvk2sba7g"
+  },
+  "Noah Simcox": {
+    "wca_id": "2011SIMC01",
+    "channel_id": "UCV4PLLoF-Lx9s4MirkJrO6g"
+  },
+  "Noah Stelting": {
+    "wca_id": "2014STEL02",
+    "channel_id": "UC6xu1wMgIdOUkKQVUbOV41Q"
+  },
+  "Nông Quốc Duy": {
+    "wca_id": "2022DUYN02",
+    "channel_id": "UC_3KAEpahoeXa-Pe9M5xlvw"
+  },
+  "Nông Quốc Khánh": {
+    "wca_id": "2022KHAN31",
+    "channel_id": "UCoPqz0gZ3TTy-5Wo2jB6hxw"
+  },
+  "Omar Ellabban": {
+    "wca_id": "2018ELLA01",
+    "channel_id": "UCGEEHKYDmO4UCkMhPjjxUug"
+  },
+  "Oskar Hanuszkiewicz": {
+    "wca_id": "2018HANU02",
+    "channel_id": "UCqk0zDy9E1u35ofiGgM3O9A"
+  },
+  "Osman Badroodin": {
+    "wca_id": "2019BADR01",
+    "channel_id": "UCFlEq96r19ybwwTuO2zdBGQ"
+  },
+  "Owen Widdis": {
+    "wca_id": "2015WIDD01",
+    "channel_id": "UCuRYSPU3vGSxNyNBlstgIaA"
+  },
+  "Paul Mahvi": {
+    "wca_id": "2012MAHV01",
+    "channel_id": "UCWnZktTANyPIgkoNFQuo6Qg"
+  },
+  "Pedro Santos Guimarães": {
+    "wca_id": "2007GUIM01",
+    "channel_id": "UCMyXJ5yf1kRb6-IfYn9Rs6w"
+  },
+  "Pranav Gadge": {
+    "wca_id": "2017GADG01",
+    "channel_id": "UCBddIegXmDGC5CKeaGwOHdg"
+  },
+  "Radomił Baran": {
+    "wca_id": "2020BARA02",
+    "channel_id": "UCFCw_P0NEJWSSgejAr2TlYg"
+  },
+  "Radosław Marcinek": {
+    "wca_id": "2022MARC05",
+    "channel_id": "UC90L_w4ZTOrPP1uJBZnYW8g"
+  },
+  "Radosław Opoka": {
+    "wca_id": "2013OPOK01",
+    "channel_id": "UCoNHeuVMqz8o20fkPRfa8iA"
+  },
+  "Rafik Eskandar": {
+    "wca_id": "2019RAGH04",
+    "channel_id": "UCUQgRb13s05TaOeS9Y7F9eA"
+  },
+  "Ray Bai": {
+    "wca_id": "2014BAIR01",
+    "channel_id": "UCfujWLs_CPQGaTXcKyBtSsQ"
+  },
+  "Remo Pihel": {
+    "wca_id": "2017PIHE01",
+    "channel_id": "UC8OhmPkB6IODAnMLbK23LKg"
+  },
+  "Richard Delacoste": {
+    "wca_id": "2015DELA05",
+    "channel_id": "UCz3FGLi7-eUC-pbLjSNwx5g"
+  },
+  "Richard Yiheng Tao": {
+    "wca_id": "2020TAOR01",
+    "channel_id": "UC6lQqxESK5P0JNHd5QOFlvA"
+  },
+  "Riley Dexter": {
+    "wca_id": "2016DEXT01",
+    "channel_id": "UCNiNVasOpEiM_UgkQdnQDgQ"
+  },
+  "Robert Yau": {
+    "wca_id": "2009YAUR01",
+    "channel_id": "UCt96JZy2ulhZcZopugJL1nw"
+  },
+  "Robert Yomi Cadenas Nuñez": {
+    "wca_id": "2022NUNE01",
+    "channel_id": "UCK_xm2kCWD5BOErgWdUGd1Q"
+  },
+  "Roman Rudakov": {
+    "wca_id": "2022RUDA02",
+    "channel_id": "UC6wC8XLr8FZRjjZhaT3NLyA"
+  },
+  "Ruben Grobler": {
+    "wca_id": "2015GROB02",
+    "channel_id": "UCnsfe3N-GvpZyU9urqWhzLA"
+  },
+  "Ryan Eckersley": {
+    "wca_id": "2019ECKE02",
+    "channel_id": "UC9fglfqDvTx6AKQD5tnkqSA"
+  },
+  "Ryan Hudgens": {
+    "wca_id": "2021HUDG01",
+    "channel_id": "UC_DvGsopqf3fyPFXn5ZbrZg"
+  },
+  "Ryan Pilat": {
+    "wca_id": "2016PILA03",
+    "channel_id": "UCp9w0EK6yzpJkLNIUnrXItg"
+  },
+  "Samir Homsi": {
+    "wca_id": "2018HOMS01",
+    "channel_id": "UCbgKlS_yIoLsEQVfb0pmtWg"
+  },
+  "Sean Moran": {
+    "wca_id": "2016MORA24",
+    "channel_id": "UCGA-UEx3EJwYOxNE8F4PRVw"
+  },
+  "Shahar Uzner": {
+    "wca_id": "2023UZNE01",
+    "channel_id": "UCEAb_PZME0wYp_S5aMlUVuw"
+  },
+  "Shivaan Harichander": {
+    "wca_id": "2016HARI06",
+    "channel_id": "UCNOSYkvZ585Q9uLI2xAeZzA"
+  },
+  "Shubham Maharana": {
+    "wca_id": "2016MAHA07",
+    "channel_id": "UCGRkU-vw_SWyQrFC7b72aAA"
+  },
+  "Simon Stannek": {
+    "wca_id": "2012STAN04",
+    "channel_id": "UCkAuI14g1cqQCc18FWO0grQ"
+  },
+  "Sreeram Venkatarao": {
+    "wca_id": "2008VENK01",
+    "channel_id": "UC6SexGBivuXgSuPfIWqb9sw"
+  },
+  "Stanley Wang": {
+    "wca_id": "2017WANS05",
+    "channel_id": "UCqLiiktcyxgUuZHFuIhbbpQ"
+  },
+  "Sujan Feist": {
+    "wca_id": "2016FEIS01",
+    "channel_id": "UCX9jAozPfaxcAHIa1it7j-A"
+  },
+  "Szymon Musiał": {
+    "wca_id": "2018MUSI03",
+    "channel_id": "UCIuhcvPk0aBZkTYBVQLU-TA"
+  },
+  "Taiyo Berčič": {
+    "wca_id": "2022BERC01",
+    "channel_id": "UCep8IYRBnaDOIvx-M0tdrnA"
+  },
+  "Teodor Zajder": {
+    "wca_id": "2021ZAJD03",
+    "channel_id": "UCsN1-iJppJ3ln02zWga2Cdg"
+  },
+  "Theo Goluboff": {
+    "wca_id": "2017GOLU01",
+    "channel_id": "UCA_52m4Wy441SoBurET7eag"
+  },
+  "Thiago Han": {
+    "wca_id": "2022HANT01",
+    "channel_id": "UCv6lbeC4Y9GZSFzzy_4ZMjw"
+  },
+  "Thodoris Iatrou": {
+    "wca_id": "2022IATR01",
+    "channel_id": "UC0viBsHIaskImk-M2lLlstQ"
+  },
+  "Tiago Zamberlan": {
+    "wca_id": "2016ZAMB05",
+    "channel_id": "UCP1v_lj4UyGAZUpdblbA0TQ"
+  },
+  "Tim Wong": {
+    "wca_id": "2007WONG02",
+    "channel_id": "UCzQUhJ9CCd9cmZnIkR_OOxQ"
+  },
+  "Toby Litiatco": {
+    "wca_id": "2018LITI01",
+    "channel_id": "UCZ6_zOUIDiRx7oJwuQ-l-8g"
+  },
+  "Toby Seufert": {
+    "wca_id": "2021SEUF01",
+    "channel_id": "UCo1zkb8PaDypHhF60u6x7bg"
+  },
+  "Tomasz Pietruszka": {
+    "wca_id": "2021PIET01",
+    "channel_id": "UC4JyMnE23PhuZSdMUvUI5UA"
+  },
+  "Tomasz Żołnowski": {
+    "wca_id": "2005ZOLN01",
+    "channel_id": "UCXMW1s-7yThat81Lh1gKP5Q"
+  },
+  "Toni Beljo": {
+    "wca_id": "2015BELJ01",
+    "channel_id": "UC6daWXoUF4dU1cq3ewL0i9Q"
+  },
+  "Tucker Chamberlain": {
+    "wca_id": "2018CHAM01",
+    "channel_id": "UCBxzPgYMtKBj2YLkIovqp2A"
+  },
+  "Twan Dullemond": {
+    "wca_id": "2018DULL01",
+    "channel_id": "UC39yAOx3qi_U3Ud3NVDUZhg"
+  },
+  "Tyler Robinson": {
+    "wca_id": "2015ROBI04",
+    "channel_id": "UCojVS6TmtTvcbUk2n6g5jlw"
+  },
+  "Tymon Kolasiński": {
+    "wca_id": "2016KOLA02",
+    "channel_id": "UCD9ij3KHjCq2iukw6Ure_vA"
+  },
+  "Télian Delannoy": {
+    "wca_id": "2016DELA03",
+    "channel_id": "UCLm1KPrBYYFKOFNf8KaF4Lw"
+  },
+  "Ujjawal Pabreja": {
+    "wca_id": "2015PABR01",
+    "channel_id": "UC56_mdoUDGu7-53ZW-UkUnA"
+  },
+  "Ulrik Bredland": {
+    "wca_id": "2012BRED01",
+    "channel_id": "UCI1Wx0kdb2WtRi4uQjOcexQ"
+  },
+  "Urho Kinnunen": {
+    "wca_id": "2018KINN05",
+    "channel_id": "UCqX_Amzu36b7fikW3YoblJw"
+  },
+  "Varun Mohanraj": {
+    "wca_id": "2015MOHA10",
+    "channel_id": "UCfJb43x6QzJ6dMhdyAdc3GQ"
+  },
+  "Vasile Dan": {
+    "wca_id": "2013VASI02",
+    "channel_id": "UC_O7vChkxP67FwnIZn_ZQ3w"
+  },
+  "Vishwa Sankar": {
+    "wca_id": "2017SANK04",
+    "channel_id": "UCMAEeOMabTUnBdwGUhnoNtA"
+  },
+  "Vishwanath Jeyaraman": {
+    "wca_id": "2016JEYA01",
+    "channel_id": "UCDdlIOiFG3MBEfk4iUS7iHQ"
+  },
+  "Vladimir Kuznetsov": {
+    "wca_id": "2014KUZN02",
+    "channel_id": "UCE7VPr_kybQNSeje-isOr4A"
+  },
+  "Weston Todd": {
+    "wca_id": "2022TODD02",
+    "channel_id": "UCCfWbhS8HC5pOct2lJqOfHg"
+  },
+  "Will Faust": {
+    "wca_id": "2016FAUS01",
+    "channel_id": "UCepM0vCzqRsbQlo5W2o5mIQ"
+  },
+  "Yerkin Assylbek": {
+    "wca_id": "2018YERK02",
+    "channel_id": "UC5Q-daT7CUbRw16OoaVLLKA"
+  },
+  "Yoav Vishne": {
+    "wca_id": "2022VISH01",
+    "channel_id": "UCgGBzXhFHc-f4RLzPuuY4ag"
+  },
+  "Zayn Khanani": {
+    "wca_id": "2018KHAN28",
+    "channel_id": "UC32-4jVFvnMCAQWTyYCD0EA"
+  },
+  "Zeke Mackay": {
+    "wca_id": "2015MACK06",
+    "channel_id": "UChxpU8ZvJuQw05Kr7KCUerQ"
+  },
+  "Zoei Principe": {
+    "wca_id": "2022PRIN09",
+    "channel_id": "UChUKXOoOfSsGSBf_CGWRBpw"
   }
 }
