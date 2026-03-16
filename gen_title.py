@@ -119,11 +119,18 @@ def _parse_keywords(text: str) -> list[str]:
     """
     # 用空格和常见分隔符拆分
     tokens = re.split(r"[\s,|]+", text.strip())
-    # NOTE: 去除方括号，如 [3x3] → 3x3（YouTube 标题常见格式）
-    tokens = [re.sub(r"[\[\]]", "", t) for t in tokens]
+    # NOTE: 去除方括号和圆括号，如 [3x3] → 3x3, (0.02 → 0.02
+    tokens = [re.sub(r"[\[\]()]", "", t) for t in tokens]
+    # 去除尾部标点，如 Average! → Average
+    tokens = [t.rstrip("!?.") for t in tokens]
     # 过滤掉纯粹的废词和空串
-    stopwords = {"in", "at", "the", "a", "an", "of", "by", "new", "record",
-                 "breaking", "news", "official"}
+    # NOTE: YouTube 魔方视频标题常见的修饰词，不应被当作选手名
+    stopwords = {
+        "in", "at", "the", "a", "an", "of", "by", "new", "record",
+        "breaking", "news", "official", "rubik's", "rubiks", "cube",
+        "from", "pr", "pb", "wr", "nr", "cr",
+        "my", "best", "ever", "so", "close", "to",
+    }
     return [t for t in tokens if t and t.lower() not in stopwords]
 
 
@@ -232,10 +239,10 @@ _EVENT_ID_TO_NAME = {
 }
 
 
-def search_wca_person(name: str) -> dict | None:
+def search_wca_person(name: str) -> list[dict]:
     """
-    用 WCA REST API 搜索选手，返回 {wca_id, name, country_iso2} 或 None。
-    只取 persons_table 中的第一个结果。
+    用 WCA REST API 搜索选手，返回候选人列表 [{wca_id, name, country_iso2}, ...]。
+    优先精确匹配名字，如果没有精确匹配则取第一个结果。
     """
     try:
         r = requests.get(
@@ -246,16 +253,21 @@ def search_wca_person(name: str) -> dict | None:
         r.raise_for_status()
         results = r.json().get("result", [])
         if not results:
-            return None
-        p = results[0]
-        return {
-            "wca_id": p["wca_id"],
-            "name": p["name"],
-            "country_iso2": p["country_iso2"],
-        }
+            return []
+
+        # NOTE: 优先精确匹配（如 "Brian Sun" == "Brian Sun"）。
+        # WCA 可能有重名选手，全部返回以便用成绩消歧。
+        name_lower = name.lower()
+        exact = [p for p in results if p["name"].lower() == name_lower]
+
+        candidates = exact if exact else [results[0]]
+        return [
+            {"wca_id": p["wca_id"], "name": p["name"], "country_iso2": p["country_iso2"]}
+            for p in candidates
+        ]
     except Exception as e:
         print(f"  WCA API 搜人失败: {e}")
-        return None
+        return []
 
 
 def find_competition_by_result(
@@ -418,24 +430,38 @@ def fallback_wca_api(keywords: list[str], write_dir: str | None) -> bool:
         return False
 
     print(f"\n  回退: WCA API 查询 '{parts['person_name']}'...")
-    person = search_wca_person(parts["person_name"])
-    if not person:
+    candidates = search_wca_person(parts["person_name"])
+    if not candidates:
         print("  未找到 WCA 选手")
         return False
 
-    print(f"  找到: {person['name']} ({person['country_iso2']})")
+    if len(candidates) > 1:
+        print(f"  找到 {len(candidates)} 个同名选手，用成绩消歧...")
 
-    # 用成绩反查比赛
+    # NOTE: 重名消歧：逐个候选人查成绩，谁有匹配成绩就用谁
     time_cs = _time_str_to_centiseconds(parts["time_str"])
+    person = candidates[0]
     comp = None
+
     if time_cs:
         is_avg = parts["rec_type"] == "average"
-        comp = find_competition_by_result(
-            person["wca_id"], time_cs, parts["event_id"], is_avg
-        )
-        if comp:
-            print(f"  比赛: {comp['comp_name']}")
-        else:
+        for candidate in candidates:
+            print(f"  尝试: {candidate['name']} ({candidate['country_iso2']})")
+            result = find_competition_by_result(
+                candidate["wca_id"], time_cs, parts["event_id"], is_avg
+            )
+            if result:
+                person = candidate
+                comp = result
+                break
+    else:
+        print(f"  找到: {person['name']} ({person['country_iso2']})")
+
+    if comp:
+        print(f"  比赛: {comp['comp_name']}")
+    else:
+        print(f"  选手: {person['name']} ({person['country_iso2']})")
+        if time_cs:
             print("  未找到对应比赛成绩")
 
     cn, en = format_general_title(
