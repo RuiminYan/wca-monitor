@@ -301,6 +301,31 @@ def _load_channel_alias(channel_name: str = "",
         return None
 
 
+def _save_channel_alias(channel_name: str, wca_id: str,
+                        channel_id: str = ""):
+    """
+    自动保存频道→WCA ID 映射到缓存。
+    已有的手动条目不会被覆盖（按 channel_name key 判断）。
+    """
+    try:
+        aliases = {}
+        if os.path.exists(_CHANNEL_ALIASES_PATH):
+            with open(_CHANNEL_ALIASES_PATH, "r", encoding="utf-8") as f:
+                aliases = json.load(f)
+        # 不覆盖已有条目
+        if channel_name in aliases:
+            return
+        entry = {"wca_id": wca_id}
+        if channel_id:
+            entry["channel_id"] = channel_id
+        aliases[channel_name] = entry
+        with open(_CHANNEL_ALIASES_PATH, "w", encoding="utf-8") as f:
+            json.dump(aliases, f, ensure_ascii=False, indent=2)
+        print(f"  已缓存映射: {channel_name} → {wca_id}")
+    except Exception:
+        pass
+
+
 def search_wca_person(name: str) -> list[dict]:
     """
     用 WCA REST API 搜索选手，返回候选人列表 [{wca_id, name, country_iso2}, ...]。
@@ -595,6 +620,13 @@ def fallback_wca_api(
     else:
         print(f"\n  回退: WCA API 查询 '{parts['person_name']}'...")
         candidates = search_wca_person(parts["person_name"])
+        # NOTE: 唯一匹配时自动缓存，下次直接命中
+        if len(candidates) == 1 and channel_id:
+            _save_channel_alias(parts["person_name"],
+                                candidates[0]["wca_id"], channel_id)
+        elif len(candidates) == 1:
+            _save_channel_alias(parts["person_name"],
+                                candidates[0]["wca_id"])
     if not candidates:
         print("  未找到 WCA 选手")
         return False
