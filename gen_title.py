@@ -346,49 +346,55 @@ def find_latest_live_competition(
 ) -> dict | None:
     """
     从 WCA Live 查找选手注册的比 rest_last_date 更新的比赛。
-    按日期从最近到最远搜索，找到第一场就返回。
+    用 competitions(from) 一次查询拿到所有近期比赛和参赛者，本地匹配。
     返回 {comp_id, comp_name, comp_country_iso2} 或 None。
     """
     try:
-        # 拿 WCA Live 全部比赛列表
-        q = """{ competitions { id name startDate endDate
-                  venues { country { iso2 } } } }"""
-        r = requests.post(WCA_LIVE_API, json={"query": q}, timeout=10)
-        live_comps = r.json().get("data", {}).get("competitions", [])
-
-        # 筛选 startDate 在 rest_last_date 之后且 <= 今天（排除未来比赛）
-        from datetime import date
+        from datetime import date, timedelta
+        # NOTE: 从 REST API 最后一场日期的次日开始查，避免重复
+        since = rest_last_date
         today = date.today().isoformat()
-        newer = [c for c in live_comps
-                 if c["startDate"] > rest_last_date and c["startDate"] <= today]
 
-        if not newer:
+        # 一次查询拿到所有新比赛 + 全部 competitors
+        q = ('{ competitions(from: "%s") { id name startDate '
+             'venues { country { iso2 } } '
+             'competitors { wcaId } } }' % since)
+        r = requests.post(WCA_LIVE_API, json={"query": q}, timeout=15)
+        data = r.json()
+        if "errors" in data:
             return None
 
-        # 按日期从最近到最远排序
-        newer.sort(key=lambda c: c["startDate"], reverse=True)
-        print(f"  WCA Live: {len(newer)} 场新比赛，检查选手注册...")
+        all_comps = data.get("data", {}).get("competitions", [])
 
-        # NOTE: 逐场查 competitors，最多查 10 场避免太慢
-        for comp in newer[:10]:
-            q2 = '{ competition(id: "%s") { competitors { wcaId } } }' % comp["id"]
-            r2 = requests.post(WCA_LIVE_API, json={"query": q2}, timeout=5)
-            data = r2.json()
-            if "errors" in data:
-                continue
-            competitors = data.get("data", {}).get("competition", {}).get("competitors", [])
-            if any(c.get("wcaId") == wca_id for c in competitors):
-                iso2 = ""
-                if comp.get("venues"):
-                    iso2 = comp["venues"][0].get("country", {}).get("iso2", "")
-                print(f"  WCA Live 找到: {comp['name']} ({comp['startDate']})")
-                return {
-                    "comp_id": str(comp["id"]),
-                    "comp_name": comp["name"],
-                    "comp_country_iso2": iso2,
-                }
+        # 只看已开始的比赛（排除未来的），且比 REST API 更新
+        recent = [c for c in all_comps
+                  if c["startDate"] > rest_last_date and c["startDate"] <= today]
 
-        return None
+        if not recent:
+            return None
+
+        # 在本地匹配选手 wcaId
+        matched = []
+        for c in recent:
+            if any(p.get("wcaId") == wca_id for p in c.get("competitors", [])):
+                matched.append(c)
+
+        if not matched:
+            return None
+
+        # 取日期最近的那场
+        matched.sort(key=lambda c: c["startDate"], reverse=True)
+        best = matched[0]
+        iso2 = ""
+        if best.get("venues"):
+            iso2 = best["venues"][0].get("country", {}).get("iso2", "")
+
+        print(f"  WCA Live 找到: {best['name']} ({best['startDate']})")
+        return {
+            "comp_id": str(best["id"]),
+            "comp_name": best["name"],
+            "comp_country_iso2": iso2,
+        }
     except Exception as e:
         print(f"  WCA Live 查比赛失败: {e}")
         return None
