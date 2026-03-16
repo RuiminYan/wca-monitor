@@ -195,7 +195,7 @@ python gen_title.py --list
 
 > **排名说明**：如果 CR/NR 成绩进入世界前 100 名，会在缩写后追加 `/WRxx`（如 `/WR3` 表示世界第 3）。
 > WR 成绩不显示额外排名（默认为世界第 1）。
-> 排名数据通过 WCA 官网 JSON API 获取（Top 100），本地缓存 7 天有效，首次启动约需 30 秒。
+> 排名数据通过 WCA 官网 JSON API 获取（Top 100），本地缓存 3 天有效，首次启动约需 30 秒。
 
 **比赛公示示例：**
 ```
@@ -236,7 +236,7 @@ GET https://www.worldcubeassociation.org/api/v0/competitions
 |---|---|---|
 | `monitor_utils.py` | 共享底座模块（配置/推送/持久化/信号处理） | ✅ |
 | `wca_record_monitor.py` | 纪录监控脚本 | ✅ |
-| `wca_rankings.py` | 世界排名模块（Top 100，JSON API + 7d 缓存） | ✅ |
+| `wca_rankings.py` | 世界排名模块（Top 100，JSON API + 3d 缓存） | ✅ |
 | `test_push.py` | 推送测试工具（`--dry-run` 可预览） | ✅ |
 | `gen_title.py` | 纪录标题生成工具（转发视频用） | ✅ |
 | `cubing_com_monitor.py` | 粗饼比赛监控脚本 | ✅ |
@@ -254,7 +254,7 @@ GET https://www.worldcubeassociation.org/api/v0/competitions
 | `known_ids.json` | 已推送纪录 ID 缓存 | ❌ |
 | `known_comp_ids.json` | 已推送粗饼比赛 ID 缓存 | ❌ |
 | `known_wca_comp_ids.json` | 已推送 WCA 比赛 ID 缓存 | ❌ |
-| `rankings_cache.json` | 世界排名缓存（7 天有效，自动更新） | ❌ |
+| `rankings_cache.json` | 世界排名缓存（3 天有效，自动更新） | ❌ |
 | `cubing_competitions.json` | 比赛数据缓存（自动更新） | ❌ |
 
 ## 依赖

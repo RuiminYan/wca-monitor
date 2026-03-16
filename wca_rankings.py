@@ -4,7 +4,7 @@ WCA 世界排名模块
 通过 WCA 官网的 JSON API 获取各项目 Top 100 排名数据。
 请求方式：对排名页面 URL 发送 Accept: application/json 头，WCA 返回 JSON 格式的排名列表。
 
-排名数据会缓存到本地 JSON 文件，7 天内有效，避免每次启动都请求 34 个榜单。
+排名数据会缓存到本地 JSON 文件，3 天内有效，避免每次启动都请求 34 个榜单。
 
 JSON API 格式示例:
 GET https://www.worldcubeassociation.org/results/rankings/333/single
@@ -24,8 +24,8 @@ log = logging.getLogger("wca_monitor.rankings")
 SCRIPT_DIR = Path(__file__).resolve().parent
 # 本地排名缓存文件
 CACHE_FILE = SCRIPT_DIR / "rankings_cache.json"
-# 缓存有效期（秒）：7 天（排名变化缓慢，无需频繁更新）
-CACHE_TTL = 7 * 24 * 60 * 60
+# 缓存有效期（秒）：3 天（排名变化缓慢，无需频繁更新）
+CACHE_TTL = 3 * 24 * 60 * 60
 
 # 模拟浏览器请求头，关键是 Accept: application/json
 _HEADERS = {
@@ -103,7 +103,7 @@ class RankingCache:
     def update_all(self):
         """
         全量更新所有项目的 Top 100 排名。
-        优先使用本地缓存（24h 有效），缓存失效时通过 JSON API 获取。
+        优先使用本地缓存（3天 有效），缓存失效时通过 JSON API 获取。
         """
         # 尝试加载本地缓存
         if self._load_disk_cache():
