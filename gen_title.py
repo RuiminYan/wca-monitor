@@ -268,8 +268,9 @@ def find_competition_by_result(
     返回 {comp_id, comp_name, comp_country_iso2} 或 None。
     """
     try:
-        # 查选手全部成绩记录
-        r = requests.get(f"{WCA_API}/persons/{wca_id}/results", timeout=10)
+        # NOTE: results 可能有 1000+ 条，需要较长超时
+        print("  查询选手历史成绩...")
+        r = requests.get(f"{WCA_API}/persons/{wca_id}/results", timeout=20)
         r.raise_for_status()
         all_results = r.json()
 
@@ -280,6 +281,8 @@ def find_competition_by_result(
             if res["event_id"] == event_id and res.get(field) == time_cs:
                 matching_comps.append(res["competition_id"])
 
+        print(f"  获取到 {len(all_results)} 条成绩，匹配 {len(matching_comps)} 条")
+
         if not matching_comps:
             return None
 
@@ -287,9 +290,11 @@ def find_competition_by_result(
         target_comp_id = matching_comps[-1]
 
         # 查比赛详情
+        print("  查询比赛详情...")
         r2 = requests.get(f"{WCA_API}/persons/{wca_id}/competitions", timeout=10)
         r2.raise_for_status()
         comps = r2.json()
+        print(f"  获取到 {len(comps)} 场比赛")
 
         for comp in comps:
             if comp["id"] == target_comp_id:
