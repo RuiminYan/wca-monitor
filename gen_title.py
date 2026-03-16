@@ -115,17 +115,26 @@ def _parse_keywords(text: str) -> list[str]:
     """
     # 用空格和常见分隔符拆分
     tokens = re.split(r"[\s,|]+", text.strip())
-    # 过滤掉纯粹的废词
-    stopwords = {"in", "at", "the", "a", "an", "of", "by", "new", "record", "breaking", "news"}
+    # NOTE: 去除方括号，如 [3x3] → 3x3（YouTube 标题常见格式）
+    tokens = [re.sub(r"[\[\]]", "", t) for t in tokens]
+    # 过滤掉纯粹的废词和空串
+    stopwords = {"in", "at", "the", "a", "an", "of", "by", "new", "record",
+                 "breaking", "news", "official"}
     return [t for t in tokens if t and t.lower() not in stopwords]
 
 
+# NOTE: 最低匹配分数门槛。
+# 真正的纪录视频标题通常含成绩(+20) + 选手名(+10) + 项目(+5) = 35+。
+# 阈值 15 可以过滤掉只靠 "single"(+2) 或 "3x3"(+5) 碰巧命中的误匹配。
+_MIN_MATCH_SCORE = 15
+
+
 def find_matching_records(keywords: list[str], records: list[dict]) -> list[tuple[dict, int]]:
-    """按匹配度排序返回 [(record, score)]，只返回 score > 0 的"""
+    """按匹配度排序返回 [(record, score)]，只返回 score >= _MIN_MATCH_SCORE 的"""
     scored = []
     for r in records:
         s = _score_match(r, keywords)
-        if s > 0:
+        if s >= _MIN_MATCH_SCORE:
             scored.append((r, s))
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored
