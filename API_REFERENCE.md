@@ -157,3 +157,56 @@ REST API /results/rankings → 本地缓存 rankings_cache.json（3天有效）
 | 频道名含非拉丁字符 | 如 `남승혁`（韩文） | 过滤非 ASCII 字符后再搜 |
 | WCA Live 查询超复杂度 | 查 competitionEvents > rounds > results 超 5000 | 只查 competitors 不查成绩 |
 | 厘秒转换精度问题 | `float('4.89') * 100 = 488.999...` | 用 `round()` 而非 `int()` |
+
+---
+
+## 5. WCA REST API — 比赛列表
+
+```
+GET /competitions?sort=-announced_at&per_page=50
+```
+
+- `sort=-announced_at` 按公布时间倒序（最新的在前）
+- `per_page` 控制每页数量（默认 25）
+- 每条含 `id`, `name`, `country_iso2`, `start_date`, `date_range`, `city`, `event_ids`, `competitor_limit`, `url`
+- 使用者：`wca_comp_monitor.py`（轮询新比赛推送通知）
+
+---
+
+## 6. 粗饼网 API
+
+**Base URL:** `https://cubing.com/api`
+
+```
+GET /competition
+Header: Accept: application/json
+```
+
+- 返回 `{"data": [{id, name, date: {from, to}, locations: [...], ...}, ...]}`
+- `date.from` / `date.to` 是 Unix 时间戳
+- `locations[0]` 含 `province`, `city`
+- 使用者：`cubing_com_monitor.py`（轮询新比赛推送通知）
+
+---
+
+## 7. Bark 推送 API
+
+**Endpoint:** `POST {bark_server}/push`
+
+```json
+{
+  "device_key": "设备密钥",
+  "title": "标题",
+  "body": "正文",
+  "url": "点击链接",
+  "group": "分组名",
+  "level": "timeSensitive",
+  "isArchive": "1"
+}
+```
+
+- `bark_server` 默认 `https://api.day.app`
+- `group` 用于通知分组：`"WCA Records"` / `"cubing-comp"` / `"wca-comp"`
+- `level` = `"timeSensitive"` 即使静音也显示通知
+- 返回 `{"code": 200}` 表示成功
+- 使用者：`monitor_utils.py` `send_bark()`

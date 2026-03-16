@@ -8,6 +8,7 @@
 - **粗饼比赛监控** (`cubing_com_monitor.py`) — 监控粗饼网新比赛发布（中国大陆）
 - **WCA 比赛监控** (`wca_comp_monitor.py`) — 监控 WCA 官网新比赛发布（全球）
 - **邮件通知** (`email_notifier.py`) — 新比赛和 WR 时发送邮件（可选，需配置 SMTP）
+- **视频标题生成** (`gen_title.py`) — 根据视频标题自动生成中英文标题（详见 [API 参考](API_REFERENCE.md)）
 
 ## 快速开始
 
