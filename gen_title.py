@@ -49,6 +49,8 @@ WCA 比赛视频标题生成工具
 """
 
 import io
+import json
+import os.path
 import re
 import sys
 
@@ -268,6 +270,35 @@ _EVENT_ID_TO_NAME = {
     "444bf": "4x4x4 Blindfolded", "555bf": "5x5x5 Blindfolded",
     "333mbf": "3x3x3 Multi-Blind",
 }
+
+
+# 频道名映射表路径
+_CHANNEL_ALIASES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "channel_aliases.json")
+
+
+def _load_channel_alias(channel_name: str = "",
+                        channel_id: str = "") -> dict | None:
+    """
+    查 channel_aliases.json，按频道名（key）或频道 ID 匹配。
+    返回 {wca_id, channel_id?} 或 None。
+    频道名可能变，channel_id 永久唯一，两个都查。
+    """
+    if not os.path.exists(_CHANNEL_ALIASES_PATH):
+        return None
+    try:
+        with open(_CHANNEL_ALIASES_PATH, "r", encoding="utf-8") as f:
+            aliases = json.load(f)
+        # 优先按频道名（key）查
+        if channel_name and channel_name in aliases:
+            return aliases[channel_name]
+        # 再按 channel_id 遍历查
+        if channel_id:
+            for entry in aliases.values():
+                if entry.get("channel_id") == channel_id:
+                    return entry
+        return None
+    except Exception:
+        return None
 
 
 def search_wca_person(name: str) -> list[dict]:
@@ -534,18 +565,36 @@ def format_general_title(
 def fallback_wca_api(
     keywords: list[str], write_dir: str | None,
     uploader: str | None = None,
+    channel_id: str | None = None,
 ) -> bool:
     """
     纪录匹配失败后的回退：用 WCA REST API 查询选手和比赛信息。
     uploader: YouTube 频道名，作为选手名的首选来源。
+    channel_id: YouTube 频道 ID，用于查 channel_aliases.json 映射。
     成功则输出/写入标题并返回 True，失败返回 False。
     """
     parts = _extract_title_parts(keywords, uploader=uploader)
     if not parts["person_name"] or not parts["time_str"]:
         return False
 
-    print(f"\n  回退: WCA API 查询 '{parts['person_name']}'...")
-    candidates = search_wca_person(parts["person_name"])
+    # NOTE: 先查频道映射表（按频道名或频道ID），处理缩写频道名
+    alias = _load_channel_alias(parts["person_name"], channel_id or "")
+    if alias:
+        wca_id = alias["wca_id"]
+        print(f"\n  频道映射命中: WCA ID = {wca_id}")
+        # 用 /persons/{wca_id} 直接查选手真名和国家
+        try:
+            r = requests.get(f"{WCA_API}/persons/{wca_id}", timeout=10)
+            p = r.json().get("person", {})
+            candidates = [{"wca_id": wca_id,
+                           "name": p.get("name", wca_id),
+                           "country_iso2": p.get("country_iso2", "")}]
+            print(f"  选手: {candidates[0]['name']} ({candidates[0]['country_iso2']})")
+        except Exception:
+            candidates = [{"wca_id": wca_id, "name": wca_id, "country_iso2": ""}]
+    else:
+        print(f"\n  回退: WCA API 查询 '{parts['person_name']}'...")
+        candidates = search_wca_person(parts["person_name"])
     if not candidates:
         print("  未找到 WCA 选手")
         return False
@@ -687,6 +736,16 @@ def main():
         else:
             raw_args = raw_args[:ui]
 
+    # --channel-id: YouTube 频道 ID，用于查 channel_aliases.json
+    channel_id = None
+    ci = next((i for i, a in enumerate(raw_args) if a == "--channel-id"), -1)
+    if ci >= 0:
+        if ci + 1 < len(raw_args):
+            channel_id = raw_args[ci + 1]
+            raw_args = raw_args[:ci] + raw_args[ci + 2:]
+        else:
+            raw_args = raw_args[:ci]
+
     # --auto: 非交互模式，匹配失败时静默退出
     auto_mode = "--auto" in raw_args
 
@@ -714,7 +773,8 @@ def main():
         matches = find_matching_records(keywords, records)
         if not matches:
             # NOTE: 纪录匹配失败 → 回退到 WCA API 查询
-            if fallback_wca_api(keywords, write_dir, uploader=uploader):
+            if fallback_wca_api(keywords, write_dir, uploader=uploader,
+                               channel_id=channel_id):
                 return
             if auto_mode:
                 print("未匹配到纪录，跳过")
