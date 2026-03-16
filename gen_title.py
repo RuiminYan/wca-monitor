@@ -146,6 +146,19 @@ def print_record_summary(record: dict, idx: int = 0):
     print(f"{prefix} {tag} | {time_str} {event['name']} {type_str} | {person['name']} | {comp['name']}")
 
 
+def strip_prefix(text: str) -> str:
+    """
+    去掉纪录快讯前缀，只保留纪录内容部分。
+    "纪录快讯! 5.55..." → "5.55..."
+    "BREAKING NEWS! 5.55..." → "5.55..."
+    "Breaking News! 5.55..." → "5.55..."
+    """
+    for prefix in ["纪录快讯! ", "BREAKING NEWS! ", "Breaking News! "]:
+        if text.startswith(prefix):
+            return text[len(prefix):]
+    return text
+
+
 def print_formatted(record: dict):
     """打印格式化后的标题，可直接复制使用"""
     cn, en, url = format_record_message(record)
@@ -154,6 +167,30 @@ def print_formatted(record: dict):
     print(f"  正文: {en}")
     print(f"  链接: {url}")
     print()
+
+
+def write_info_files(record: dict, out_dir: str):
+    """
+    将中英文标题写入 info_chs.md 和 info_eng.md 的第一行。
+    去掉 "纪录快讯!/Breaking News!" 前缀。
+    如果文件已有非空内容则跳过，避免覆盖用户手动编辑。
+    """
+    from pathlib import Path
+    cn, en, url = format_record_message(record)
+    cn_title = strip_prefix(cn)
+    en_title = strip_prefix(en)
+
+    out = Path(out_dir)
+    for fname, content in [("info_chs.md", cn_title), ("info_eng.md", en_title)]:
+        fpath = out / fname
+        # 如果文件已有非空内容，跳过
+        if fpath.exists():
+            existing = fpath.read_text(encoding="utf-8").strip()
+            if existing:
+                print(f"  跳过 {fname}（已有内容）")
+                continue
+        fpath.write_text(content + "\n", encoding="utf-8")
+        print(f"  已写入 {fname}: {content}")
 
 
 def list_all_records(records: list[dict]):
@@ -218,8 +255,23 @@ def interactive_mode(records: list[dict]):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    raw_args = sys.argv[1:]
+
+    # 解析 --write <目录> 参数
+    write_dir = None
+    if "--write" in raw_args:
+        wi = raw_args.index("--write")
+        if wi + 1 < len(raw_args):
+            write_dir = raw_args[wi + 1]
+            raw_args = raw_args[:wi] + raw_args[wi + 2:]
+        else:
+            raw_args = raw_args[:wi]
+
+    # --auto: 非交互模式，匹配失败时静默退出
+    auto_mode = "--auto" in raw_args
+
+    args = [a for a in raw_args if not a.startswith("--")]
+    flags = [a for a in raw_args if a.startswith("--")]
 
     # 初始化排名缓存（用于 /WRxx 后缀）
     print("加载世界排名数据...")
@@ -236,24 +288,35 @@ def main():
 
     # 命令行模式：参数作为关键词
     if args:
-        # 合并所有参数为关键词
         all_text = " ".join(args)
         keywords = _parse_keywords(all_text)
 
         matches = find_matching_records(keywords, records)
         if not matches:
+            if auto_mode:
+                print("未匹配到纪录，跳过")
+                return
             print("\n未找到匹配纪录")
             sys.exit(1)
 
-        # 输出最佳匹配
-        print_formatted(matches[0][0])
+        best = matches[0][0]
 
-        # 如果有多条高分匹配，提示
-        if len(matches) > 1 and matches[1][1] >= matches[0][1] * 0.7:
+        # 多条高分匹配时，auto 模式取第一条，手动模式提示
+        if not auto_mode and len(matches) > 1 and matches[1][1] >= matches[0][1] * 0.7:
             print(f"  (还有 {len(matches) - 1} 条可能匹配，用交互模式查看)")
+
+        # 输出最佳匹配
+        print_formatted(best)
+
+        # 写入 info 文件
+        if write_dir:
+            write_info_files(best, write_dir)
         return
 
-    # 无参数 → 交互模式
+    # 无参数 → 交互模式（auto 模式下直接退出）
+    if auto_mode:
+        print("无关键词，跳过")
+        return
     interactive_mode(records)
 
 
