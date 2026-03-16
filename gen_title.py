@@ -612,9 +612,6 @@ def fallback_wca_api(
         out = Path(write_dir)
         for fname, content in [("info_chs.md", cn), ("info_eng.md", en)]:
             fpath = out / fname
-            if fpath.exists() and fpath.read_text(encoding="utf-8").strip():
-                print(f"  跳过 {fname}（已有内容）")
-                continue
             fpath.write_text(content + "\n", encoding="utf-8")
             print(f"  已写入 {fname}: {content}")
 
