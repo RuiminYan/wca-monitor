@@ -327,9 +327,10 @@ def find_competition_by_result(
         return None
 
 
-def _extract_title_parts(keywords: list[str]) -> dict:
+def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> dict:
     """
     从关键词列表中分离出 成绩/项目/类型/选手名。
+    uploader: 如果提供了 YouTube 频道名，直接用作选手名（更可靠）。
     返回 {time_str, event_name, event_id, rec_type, person_name}。
     """
     time_str = None
@@ -374,7 +375,8 @@ def _extract_title_parts(keywords: list[str]) -> dict:
         "event_name": event_name or "3x3x3 Cube",
         "event_id": event_id or "333",
         "rec_type": rec_type,
-        "person_name": " ".join(name_parts) if name_parts else None,
+        # NOTE: uploader 优先：YouTube 频道名比从标题拆解更可靠
+        "person_name": uploader if uploader else " ".join(name_parts),
     }
 
 
@@ -420,12 +422,16 @@ def format_general_title(
     return cn, en
 
 
-def fallback_wca_api(keywords: list[str], write_dir: str | None) -> bool:
+def fallback_wca_api(
+    keywords: list[str], write_dir: str | None,
+    uploader: str | None = None,
+) -> bool:
     """
     纪录匹配失败后的回退：用 WCA REST API 查询选手和比赛信息。
+    uploader: YouTube 频道名，作为选手名的首选来源。
     成功则输出/写入标题并返回 True，失败返回 False。
     """
-    parts = _extract_title_parts(keywords)
+    parts = _extract_title_parts(keywords, uploader=uploader)
     if not parts["person_name"] or not parts["time_str"]:
         return False
 
@@ -557,6 +563,16 @@ def main():
         else:
             raw_args = raw_args[:wi]
 
+    # --uploader: YouTube 频道名，用作选手名的首选来源
+    uploader = None
+    ui = next((i for i, a in enumerate(raw_args) if a == "--uploader"), -1)
+    if ui >= 0:
+        if ui + 1 < len(raw_args):
+            uploader = raw_args[ui + 1]
+            raw_args = raw_args[:ui] + raw_args[ui + 2:]
+        else:
+            raw_args = raw_args[:ui]
+
     # --auto: 非交互模式，匹配失败时静默退出
     auto_mode = "--auto" in raw_args
 
@@ -584,7 +600,7 @@ def main():
         matches = find_matching_records(keywords, records)
         if not matches:
             # NOTE: 纪录匹配失败 → 回退到 WCA API 查询
-            if fallback_wca_api(keywords, write_dir):
+            if fallback_wca_api(keywords, write_dir, uploader=uploader):
                 return
             if auto_mode:
                 print("未匹配到纪录，跳过")
