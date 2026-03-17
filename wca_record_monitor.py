@@ -345,7 +345,7 @@ def format_record_message(record: dict) -> "Tuple[str, str]":
         # NR 模板：使用中文国名，找不到则回退到 API 返回的英文名
         country_cn = COUNTRY_CN_MAP.get(iso2, person["country"]["name"])
         cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{country_cn}纪录{flag}NR {cn_name} | {comp_name}"
-        en = f"Breaking News! {time_str} {en_event} {flag} NR {type_en} {en_name} | {comp_name}"
+        en = f"Breaking News! {time_str} {en_event}{flag}NR {type_en} {en_name} | {comp_name}"
     else:
         # CR → 推导具体洲际缩写（AsR/ER/AfR 等）
         cr_abbr = ISO2_TO_CR.get(iso2, "CR")

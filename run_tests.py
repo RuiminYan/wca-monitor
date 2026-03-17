@@ -61,6 +61,9 @@ def main():
         lines.append(f"  Uploader: {uploader}")
         lines.append(f"{'─'*60}")
 
+        # NOTE: 实时打印进度，让用户知道当前在跑哪个用例
+        print(f"[{i}/{total}] {uploader}: {title[:50]}{'...' if len(title) > 50 else ''}", flush=True)
+
         full_output, actual = run_test(title, uploader)
         lines.append(full_output)
         lines.append(f"{'─'*60}")
