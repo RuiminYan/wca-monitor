@@ -74,6 +74,63 @@ from wca_rankings import RANKINGS
 from monitor_utils import country_flag
 
 
+# === 话题标签生成 ===
+
+# 英文话题标签映射（去掉空格/特殊字符，全小写）
+_EVENT_TAG_EN = {
+    "3x3x3 Cube": "3x3", "2x2x2 Cube": "2x2", "4x4x4 Cube": "4x4",
+    "5x5x5 Cube": "5x5", "6x6x6 Cube": "6x6", "7x7x7 Cube": "7x7",
+    "3x3x3 Blindfolded": "3bld", "3x3x3 Fewest Moves": "fmc",
+    "3x3x3 One-Handed": "oh", "Clock": "clock",
+    "Megaminx": "megaminx", "Pyraminx": "pyraminx", "Skewb": "skewb",
+    "Square-1": "sq1", "4x4x4 Blindfolded": "4bld",
+    "5x5x5 Blindfolded": "5bld", "3x3x3 Multi-Blind": "multibld",
+}
+
+# 纪录类型的英文话题标签
+_RECORD_TAG_EN = {
+    "WR": "worldrecord",
+    "NR": "nationalrecord",
+    "CR": "continentalrecord",
+}
+
+
+def generate_topics(
+    event_name: str,
+    record_tag: str | None = None,
+    person_iso2: str | None = None,
+) -> tuple[str, str]:
+    """
+    生成中英文话题标签行。
+    event_name: WCA 事件全名（如 "4x4x4 Cube"）
+    record_tag: 纪录类型 "WR"/"NR"/"CR" 或 None（非纪录）
+    person_iso2: 选手国家代码（NR/CR 时用于确定国名/洲名）
+    返回 (cn_topics, en_topics)
+    """
+    # NOTE: 基础话题：#魔方 + 具体项目
+    event_cn = EVENT_CN_MAP.get(event_name, event_name).strip()
+    event_en = _EVENT_TAG_EN.get(event_name, event_name.lower().replace(" ", ""))
+    cn_tags = [f"#魔方", f"#{event_cn}"]
+    en_tags = [f"#rubikscube", f"#{event_en}"]
+
+    # NOTE: 纪录话题
+    if record_tag == "WR":
+        cn_tags.append("#世界纪录")
+        en_tags.append("#worldrecord")
+    elif record_tag == "NR" and person_iso2:
+        country_cn = COUNTRY_CN_MAP.get(person_iso2, "")
+        if country_cn:
+            cn_tags.append(f"#{country_cn}纪录")
+        en_tags.append("#nationalrecord")
+    elif record_tag == "CR" and person_iso2:
+        cr_abbr = ISO2_TO_CR.get(person_iso2, "CR")
+        cr_cn = CR_ABBR_CN.get(cr_abbr, "洲际纪录")
+        cn_tags.append(f"#{cr_cn}")
+        en_tags.append("#continentalrecord")
+
+    return " ".join(cn_tags), " ".join(en_tags)
+
+
 # 将用户输入的项目缩写映射到 WCA event name
 # NOTE: 覆盖常见的非规范写法（视频标题中常见的缩写）
 _EVENT_ALIAS = {}
@@ -233,11 +290,18 @@ def strip_prefix(text: str) -> str:
 
 
 def print_formatted(record: dict):
-    """打印格式化后的标题，可直接复制使用"""
+    """打印格式化后的标题和话题，可直接复制使用"""
     cn, en, url = format_record_message(record)
+    # NOTE: 从 record 中提取话题所需信息
+    tag = record["tag"]
+    event_name = record["result"]["round"]["competitionEvent"]["event"]["name"]
+    iso2 = record["result"]["person"]["country"]["iso2"]
+    cn_topics, en_topics = generate_topics(event_name, record_tag=tag, person_iso2=iso2)
     print()
     print(f"  info_chs: {strip_prefix(cn)}")
+    print(f"            {cn_topics}")
     print(f"  info_eng: {strip_prefix(en)}")
+    print(f"            {en_topics}")
     print(f"  链接: {url}")
     print()
 
@@ -245,6 +309,7 @@ def print_formatted(record: dict):
 def write_info_files(record: dict, out_dir: str):
     """
     将中英文标题写入 info_chs.md 和 info_eng.md。
+    每个文件三行：标题、话题、简介（空行）。
     去掉 "纪录快讯!/Breaking News!" 前缀，直接覆盖。
     """
     from pathlib import Path
@@ -252,11 +317,21 @@ def write_info_files(record: dict, out_dir: str):
     cn_title = strip_prefix(cn)
     en_title = strip_prefix(en)
 
+    # NOTE: 从 record 中提取话题所需信息
+    tag = record["tag"]
+    event_name = record["result"]["round"]["competitionEvent"]["event"]["name"]
+    iso2 = record["result"]["person"]["country"]["iso2"]
+    cn_topics, en_topics = generate_topics(event_name, record_tag=tag, person_iso2=iso2)
+
     out = Path(out_dir)
-    for fname, content in [("info_chs.md", cn_title), ("info_eng.md", en_title)]:
+    for fname, title, topics in [
+        ("info_chs.md", cn_title, cn_topics),
+        ("info_eng.md", en_title, en_topics),
+    ]:
         fpath = out / fname
-        fpath.write_text(content + "\n", encoding="utf-8")
-        print(f"  已写入 {fname}: {content}")
+        # 三行：标题、话题、简介（空行）
+        fpath.write_text(f"{title}\n{topics}\n\n", encoding="utf-8")
+        print(f"  已写入 {fname}: {title}")
 
 
 def list_all_records(records: list[dict]):
@@ -761,19 +836,27 @@ def fallback_wca_api(
         time_cs=time_cs,
     )
 
+    # NOTE: Fallback 路径没有纪录标签，话题只含基础项目
+    cn_topics, en_topics = generate_topics(parts["event_name"])
+
     print()
     print(f"  info_chs: {cn}")
+    print(f"            {cn_topics}")
     print(f"  info_eng: {en}")
+    print(f"            {en_topics}")
     print()
 
-    # 写入 info 文件
+    # 写入 info 文件（三行：标题、话题、简介）
     if write_dir:
         from pathlib import Path
         out = Path(write_dir)
-        for fname, content in [("info_chs.md", cn), ("info_eng.md", en)]:
+        for fname, title, topics in [
+            ("info_chs.md", cn, cn_topics),
+            ("info_eng.md", en, en_topics),
+        ]:
             fpath = out / fname
-            fpath.write_text(content + "\n", encoding="utf-8")
-            print(f"  已写入 {fname}: {content}")
+            fpath.write_text(f"{title}\n{topics}\n\n", encoding="utf-8")
+            print(f"  已写入 {fname}: {title}")
 
     return True
 
