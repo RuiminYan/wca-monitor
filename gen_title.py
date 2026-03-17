@@ -159,8 +159,8 @@ def _parse_keywords(text: str) -> list[str]:
     tokens = re.split(r"[\s,|\-]+", text.strip())
     # NOTE: 去除方括号和圆括号，如 [3x3] → 3x3, (0.02 → 0.02
     tokens = [re.sub(r"[\[\]()]", "", t) for t in tokens]
-    # 去除尾部标点，如 Average! → Average
-    tokens = [t.rstrip("!?.") for t in tokens]
+    # 去除尾部标点，如 Average! → Average, singel: → singel
+    tokens = [t.rstrip("!?.:;") for t in tokens]
     # 过滤掉纯粹的废词和空串
     # NOTE: YouTube 魔方视频标题常见的修饰词，不应被当作选手名
     stopwords = {
@@ -168,6 +168,8 @@ def _parse_keywords(text: str) -> list[str]:
         "breaking", "news", "official", "rubik's", "rubiks", "cube",
         "from", "pr", "pb", "wr", "nr", "cr",
         "my", "best", "ever", "so", "close", "to", "solve",
+        # NOTE: 多语言介词（瑞典语 av、德语 von、西语/法语 de 等）
+        "av", "von", "de", "och", "und", "et",
     }
     return [t for t in tokens if t and t.lower() not in stopwords]
 
@@ -485,16 +487,23 @@ def find_latest_live_competition(
         return None
 
 
+# NOTE: 多语言类型别名（瑞典语 singel、德语 einzelversuch 等）
+_TYPE_SINGLE_ALIASES = {"single", "s", "solve", "singel"}
+_TYPE_AVERAGE_ALIASES = {"average", "avg", "a", "ao5", "mean", "mo3"}
+
+
 def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> dict:
     """
     从关键词列表中分离出 成绩/项目/类型。
-    选手名一律从 uploader（视频发布者）获取，不从标题猜测。
-    返回 {time_str, event_name, event_id, rec_type, person_name}。
+    选手名优先从 uploader（视频发布者）获取。
+    返回 {time_str, event_name, event_id, rec_type, person_name, leftover}。
+    leftover: 未被识别为成绩/项目/类型的关键词（可能包含选手名）。
     """
     time_str = None
     event_name = None
     event_id = None
     rec_type = "single"  # 默认
+    leftover = []  # 未识别的关键词
 
     for kw in keywords:
         kw_lower = kw.lower()
@@ -517,16 +526,17 @@ def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> di
             continue
 
         # 类型
-        if kw_lower in ("single", "s", "solve"):
+        if kw_lower in _TYPE_SINGLE_ALIASES:
             rec_type = "single"
             continue
-        if kw_lower in ("average", "avg", "a", "ao5", "mean", "mo3"):
+        if kw_lower in _TYPE_AVERAGE_ALIASES:
             rec_type = "average"
             continue
 
-        # NOTE: 其余关键词（人名、PR、WR21 等）直接跳过，不用于解析
+        # NOTE: 未识别的关键词保留在 leftover（可能是人名）
+        leftover.append(kw)
 
-    # NOTE: 选手名一律从视频发布者获取，禁止从标题猜测
+    # NOTE: 选手名优先从视频发布者获取
     person = uploader
     if person:
         # 去除非拉丁字符（如韩文「남승혁」），只保留英文名
@@ -538,6 +548,7 @@ def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> di
         "event_id": event_id or "333",
         "rec_type": rec_type,
         "person_name": person if person else None,
+        "leftover": leftover,
     }
 
 
@@ -640,8 +651,23 @@ def fallback_wca_api(
             except Exception:
                 pass
     if not candidates:
-        print("  未找到 WCA 选手")
-        return False
+        # NOTE: uploader 不是 WCA 选手（如魔方协会频道），
+        # 尝试用标题中未识别的 token 作为候选人名查 WCA API
+        leftover = parts.get("leftover", [])
+        if leftover:
+            fallback_name = " ".join(leftover)
+            print(f"  uploader 非选手，尝试从标题提取: '{fallback_name}'")
+            candidates = search_wca_person(fallback_name)
+            if len(candidates) == 1:
+                # NOTE: 获取 personal_records 用于 PR 判断
+                try:
+                    r = requests.get(f"{WCA_API}/persons/{candidates[0]['wca_id']}", timeout=10)
+                    personal_records = r.json().get("personal_records", {})
+                except Exception:
+                    pass
+        if not candidates:
+            print("  未找到 WCA 选手")
+            return False
 
     if len(candidates) > 1:
         print(f"  找到 {len(candidates)} 个同名选手，用成绩消歧...")

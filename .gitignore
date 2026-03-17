@@ -21,3 +21,6 @@ __pycache__/
 explore_*.py
 *.2do
 test_output.txt
+
+# VS Code 工作区（个人配置，不提交）
+*.code-workspace
