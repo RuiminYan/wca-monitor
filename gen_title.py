@@ -56,6 +56,9 @@ from wca_record_monitor import (
     format_record_message,
     format_time,
     split_name,
+    COUNTRY_CN_MAP,
+    ISO2_TO_CR,
+    CR_ABBR_CN,
     EVENT_CN_MAP,
     EVENT_EN_MAP,
 )
@@ -164,10 +167,11 @@ def _parse_keywords(text: str) -> list[str]:
     tokens = [t.rstrip("!?.:;") for t in tokens]
     # 过滤掉纯粹的废词和空串
     # NOTE: YouTube 魔方视频标题常见的修饰词，不应被当作选手名
+    # wr/nr/cr 也作为废词过滤：标题中的 NR/WR 不可靠，纪录类型只从 API 确认
     stopwords = {
         "in", "at", "the", "a", "an", "of", "by", "new", "record",
         "breaking", "news", "official", "rubik's", "rubiks", "cube",
-        "from", "pr", "pb", "wr", "nr", "cr",
+        "from", "pr", "pb", "wr", "nr", "cr", "national", "world", "continental", "holder",
         "my", "best", "ever", "so", "close", "to", "solve",
         # NOTE: 多语言介词（瑞典语 av、德语 von、西语/法语 de 等）
         "av", "von", "de", "och", "und", "et",
@@ -574,27 +578,34 @@ def format_general_title(
     person_name: str, person_iso2: str,
     comp_name: str | None, comp_iso2: str | None,
     is_pr: bool = False,
+    event_id: str | None = None,
+    time_cs: int | None = None,
 ) -> tuple[str, str]:
     """
-    组装通用中英文标题（不含纪录前缀）。
-    is_pr: 成绩是否为该选手的个人最佳（Personal Record）。
+    组装通用中英文标题（fallback 路径）。
+    纪录类型（NR/CR/WR）不从标题获取，只标注 PR 和世界排名。
+    event_id/time_cs: 用于查询世界排名后缀 /WRxx。
     返回 (cn_title, en_title)。
     """
     event_cn = EVENT_CN_MAP.get(event_name, event_name)
     event_en = EVENT_EN_MAP.get(event_name, event_name)
     type_cn = "单次" if rec_type == "single" else "平均"
     type_en = "Single" if rec_type == "single" else "Avg"
-    # NOTE: 英文 PR 在类型前（如 "PR Single"），中文 PR 在类型后（如 "单次PR"）
     pr_tag = "PR" if is_pr else ""
     person_flag = country_flag(person_iso2) if person_iso2 else ""
 
     # NOTE: 用 split_name 拆分中英文名
-    # 中港台选手：中文标题用中文名，英文标题用英文名
-    # 其他选手（如韩文括号）：两者都用英文名（括号内容被去掉）
     cn_name, en_name = split_name(person_name, person_iso2)
 
     cn = f"{time_str}{event_cn}{type_cn}{pr_tag} {cn_name}{person_flag}"
     en = f"{time_str} {event_en} {pr_tag + ' ' if pr_tag else ''}{type_en} {en_name}{person_flag}"
+
+    # NOTE: 追加世界排名后缀 /WRxx（PR 也可能进 Top 100）
+    if event_id and time_cs:
+        rank = RANKINGS.get_world_rank(event_id, rec_type, time_cs)
+        if rank:
+            cn = cn.replace(person_flag, f"{person_flag}/WR{rank}", 1)
+            en = en.replace(person_flag, f"{person_flag}/WR{rank}", 1)
 
     if comp_name:
         comp_flag = country_flag(comp_iso2) if comp_iso2 else ""
@@ -730,6 +741,8 @@ def fallback_wca_api(
         comp["comp_name"] if comp else None,
         comp["comp_country_iso2"] if comp else None,
         is_pr=is_pr,
+        event_id=parts["event_id"],
+        time_cs=time_cs,
     )
 
     print()
@@ -882,7 +895,11 @@ def main():
 
         matches = find_matching_records(keywords, filtered_records)
         if not matches:
-            # NOTE: 纪录匹配失败 → 回退到 WCA API 查询
+            # NOTE: 诊断日志：说明 fallback 原因
+            if len(filtered_records) == 0:
+                print(f"\n  ⚠ WCA Live 无该选手纪录 → fallback")
+            else:
+                print(f"\n  ⚠ WCA Live 有 {len(filtered_records)} 条纪录但关键词不匹配 → fallback")
             if fallback_wca_api(keywords, write_dir, uploader=uploader,
                                channel_id=channel_id):
                 return
