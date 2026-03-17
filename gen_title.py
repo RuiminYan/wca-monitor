@@ -597,15 +597,23 @@ def format_general_title(
     # NOTE: 用 split_name 拆分中英文名
     cn_name, en_name = split_name(person_name, person_iso2)
 
-    cn = f"{time_str}{event_cn}{type_cn}{pr_tag} {cn_name}{person_flag}"
-    en = f"{time_str} {event_en} {pr_tag + ' ' if pr_tag else ''}{type_en} {en_name}{person_flag}"
-
-    # NOTE: 追加世界排名后缀 /WRxx（PR 也可能进 Top 100）
+    # NOTE: 先查世界排名，再和 PR 标志组合成 tag
+    # 有PR+排名 → PR/WR65，纯排名 → WR4，纯PR → PR，都没有 → 空
+    rank = None
     if event_id and time_cs:
         rank = RANKINGS.get_world_rank(event_id, rec_type, time_cs)
-        if rank:
-            cn = cn.replace(person_flag, f"{person_flag}/WR{rank}", 1)
-            en = en.replace(person_flag, f"{person_flag}/WR{rank}", 1)
+
+    if is_pr and rank:
+        tag = f"PR/WR{rank}"
+    elif is_pr:
+        tag = "PR"
+    elif rank:
+        tag = f"WR{rank}"
+    else:
+        tag = ""
+
+    cn = f"{time_str}{event_cn}{type_cn}{tag} {cn_name}{person_flag}"
+    en = f"{time_str} {event_en} {tag + ' ' if tag else ''}{type_en} {en_name}{person_flag}"
 
     if comp_name:
         comp_flag = country_flag(comp_iso2) if comp_iso2 else ""
