@@ -329,9 +329,7 @@ def write_info_files(record: dict, out_dir: str):
         ("info_eng.md", en_title, en_topics),
     ]:
         fpath = out / fname
-        # 三行：标题、话题、简介（空行）
         fpath.write_text(f"{title}\n{topics}\n\n", encoding="utf-8")
-        print(f"  已写入 {fname}: {title}")
 
 
 def list_all_records(records: list[dict]):
@@ -856,7 +854,6 @@ def fallback_wca_api(
         ]:
             fpath = out / fname
             fpath.write_text(f"{title}\n{topics}\n\n", encoding="utf-8")
-            print(f"  已写入 {fname}: {title}")
 
     return True
 
