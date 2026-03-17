@@ -23,20 +23,28 @@ WCA 比赛视频标题生成工具
   ┌─ 2. 纪录路径（优先）──────────────────────────┐
   │  用 WCA ID 过滤 recentRecords（只看该选手）    │
   │  再用标题关键词（成绩/项目/类型）匹配           │
-  │  命中 → 生成纪录快讯标题                       │
+  │  命中 → 生成纪录快讯标题（含 NR/CR/WR 格式）  │
   └────────────────────────────────────────────────┘
-          │ (未命中)
+          │ (未命中：⚠ fallback 原因会打印)
           ▼
   ┌─ 3. Fallback 路径 ─────────────────────────────┐
   │  _extract_title_parts: 拆标题 → 成绩/项目/类型 │
   │  WCA API 查选手历史成绩 → 找到比赛名           │
   │  WCA Live 补充最近比赛（REST API 有几天延迟）  │
-  │  → 生成通用双语标题                            │
+  │  → 生成通用双语标题（标注 PR / 世界排名）      │
   └────────────────────────────────────────────────┘
 
-  输出示例:
-  CN: 19.02四阶魔方单次 Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
-  EN: 19.02 4x4 Single Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
+  输出示例（纪录路径）:
+    info_chs: 5.55三阶魔方平均韩国纪录🇰🇷NR/WR43 Seung Hyuk Nahm | Paradise Park Bangkok NxNxN 2026🇹🇭
+    info_eng: 5.55 3x3 🇰🇷NR/WR43 Avg Seung Hyuk Nahm | Paradise Park Bangkok NxNxN 2026🇹🇭
+
+  输出示例（Fallback 路径，PR + 世界排名）:
+    info_chs: 19.02四阶魔方单次PR/WR21 Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
+    info_eng: 19.02 4x4 PR/WR21 Single Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
+
+  输出示例（Fallback 路径，非 PR 但有世界排名）:
+    info_chs: 2.35魔表平均WR4 Volodymyr Kapustianskyi🇺🇸 | Eau Clock Wisconsin 2026🇺🇸
+    info_eng: 2.35 Clock WR4 Avg Volodymyr Kapustianskyi🇺🇸 | Eau Clock Wisconsin 2026🇺🇸
 """
 
 import io

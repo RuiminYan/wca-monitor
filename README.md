@@ -162,18 +162,26 @@ python gen_title.py
 # 列出所有近期纪录
 python gen_title.py --list
 
+# 带频道名和频道 ID（配合 upload.ps1 自动传入）
+python gen_title.py "Nahm 5.55" --uploader "Seung-Hyuk Nahm" --channel-id "UC6jE9wKI-Y-a7f2IHxWzpnw"
+
 # 直接将生成的中英标题写入 upload-video 目录（配合自动化）：
 python gen_title.py "Nahm 5.55" --write D:\cube\upload-video --auto
 ```
 
-输出示例：
+输出示例（纪录路径，命中 WCA Live NR）：
 ```
-标题: 纪录快讯! 5.55三阶魔方平均韩国纪录🇰🇷NR/WR43 Seung Hyuk Nahm | Paradise Park Bangkok NxNxN 2026🇹🇭
-正文: Breaking News! 5.55 3x3 🇰🇷 NR/WR43 Avg Seung Hyuk Nahm | Paradise Park Bangkok NxNxN 2026🇹🇭
-链接: https://live.worldcubeassociation.org/competitions/10095/rounds/133501
+info_chs: 5.55三阶魔方平均韩国纪录🇰🇷NR/WR43 Seung Hyuk Nahm | Paradise Park Bangkok NxNxN 2026🇹🇭
+info_eng: 5.55 3x3 🇰🇷NR/WR43 Avg Seung Hyuk Nahm | Paradise Park Bangkok NxNxN 2026🇹🇭
 ```
 
-> 只能匹配 WCA Live `recentRecords` 中的纪录（最近 ~200 条），已过期的纪录无法使用。
+输出示例（Fallback 路径，PR + 世界排名）：
+```
+info_chs: 19.02四阶魔方单次PR/WR21 Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
+info_eng: 19.02 4x4 PR/WR21 Single Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
+```
+
+> 两条路径：**纪录路径**命中 WCA Live `recentRecords`（NR/CR/WR，最近约 90 条）时生成纪录快讯格式；未命中则走 **Fallback 路径**，通过 WCA REST API 查选手历史成绩，标注 PR 和世界排名（`PR/WR21`、`WR4` 等）。
 > 使用 `--write` 写入 `info_chs.md` 和 `info_eng.md` 时，会自动去掉 `纪录快讯!` 前缀，以适配外部视频上传工具的标题需求。
 
 ## 通知格式
