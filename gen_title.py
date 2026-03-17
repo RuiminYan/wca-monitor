@@ -561,19 +561,23 @@ def format_general_title(
     time_str: str, event_name: str, rec_type: str,
     person_name: str, person_iso2: str,
     comp_name: str | None, comp_iso2: str | None,
+    is_pr: bool = False,
 ) -> tuple[str, str]:
     """
     组装通用中英文标题（不含纪录前缀）。
+    is_pr: 成绩是否为该选手的个人最佳（Personal Record）。
     返回 (cn_title, en_title)。
     """
     event_cn = EVENT_CN_MAP.get(event_name, event_name)
     event_en = EVENT_EN_MAP.get(event_name, event_name)
     type_cn = "单次" if rec_type == "single" else "平均"
     type_en = "Single" if rec_type == "single" else "Avg"
+    # NOTE: 英文 PR 在类型前（如 "PR Single"），中文 PR 在类型后（如 "单次PR"）
+    pr_tag = "PR" if is_pr else ""
     person_flag = country_flag(person_iso2) if person_iso2 else ""
 
-    cn = f"{time_str}{event_cn}{type_cn} {person_name}{person_flag}"
-    en = f"{time_str} {event_en} {type_en} {person_name}{person_flag}"
+    cn = f"{time_str}{event_cn}{type_cn}{pr_tag} {person_name}{person_flag}"
+    en = f"{time_str} {event_en} {pr_tag + ' ' if pr_tag else ''}{type_en} {person_name}{person_flag}"
 
     if comp_name:
         comp_flag = country_flag(comp_iso2) if comp_iso2 else ""
@@ -598,15 +602,20 @@ def fallback_wca_api(
     if not parts["person_name"] or not parts["time_str"]:
         return False
 
+    # NOTE: personal_records 用于判断成绩是否为 PR（个人最佳）
+    personal_records = {}
+
     # NOTE: 先查频道映射表（按频道名或频道ID），处理缩写频道名
     alias = _load_channel_alias(parts["person_name"], channel_id or "")
     if alias:
         wca_id = alias["wca_id"]
         print(f"\n  频道映射命中: WCA ID = {wca_id}")
-        # 用 /persons/{wca_id} 直接查选手真名和国家
+        # 用 /persons/{wca_id} 直接查选手真名、国家和 PR
         try:
             r = requests.get(f"{WCA_API}/persons/{wca_id}", timeout=10)
-            p = r.json().get("person", {})
+            resp = r.json()
+            p = resp.get("person", {})
+            personal_records = resp.get("personal_records", {})
             candidates = [{"wca_id": wca_id,
                            "name": p.get("name", wca_id),
                            "country_iso2": p.get("country_iso2", "")}]
@@ -623,6 +632,13 @@ def fallback_wca_api(
         elif len(candidates) == 1:
             _save_channel_alias(parts["person_name"],
                                 candidates[0]["wca_id"])
+        # NOTE: 获取 personal_records 用于 PR 判断
+        if len(candidates) == 1:
+            try:
+                r = requests.get(f"{WCA_API}/persons/{candidates[0]['wca_id']}", timeout=10)
+                personal_records = r.json().get("personal_records", {})
+            except Exception:
+                pass
     if not candidates:
         print("  未找到 WCA 选手")
         return False
@@ -664,11 +680,24 @@ def fallback_wca_api(
         if time_cs:
             print("  未找到对应比赛成绩")
 
+    # NOTE: 判断成绩是否为 PR（个人最佳）
+    # WCA API 数据有几天延迟，若视频成绩优于（<=）官网 PR，同样是 PR
+    is_pr = False
+    time_cs = _time_str_to_centiseconds(parts["time_str"])
+    if time_cs and personal_records:
+        pr_type = "average" if parts["rec_type"] == "average" else "single"
+        pr_data = personal_records.get(parts["event_id"], {}).get(pr_type, {})
+        pr_best = pr_data.get("best")
+        if pr_best and time_cs <= pr_best:
+            is_pr = True
+            print(f"  ✓ 成绩是 {parts['event_name']} {pr_type} PR")
+
     cn, en = format_general_title(
         parts["time_str"], parts["event_name"], parts["rec_type"],
         person["name"], person["country_iso2"],
         comp["comp_name"] if comp else None,
         comp["comp_country_iso2"] if comp else None,
+        is_pr=is_pr,
     )
 
     print()
