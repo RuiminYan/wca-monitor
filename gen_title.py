@@ -1,59 +1,42 @@
 """
 WCA 比赛视频标题生成工具
 
-优先从 WCA Live recentRecords 匹配纪录并生成纪录快讯标题。
-如果不是纪录视频，则回退到 WCA REST API 查询选手和比赛信息，组装通用标题。
-
 用法：
-  python gen_title.py                           # 交互模式
-  python gen_title.py "5.55 3x3 NR Avg Nahm"    # 命令行模式
-  python gen_title.py --list                     # 列出所有近期纪录
-  python gen_title.py "标题" --uploader "频道名"  # 用频道名查选手
+  python gen_title.py                                        # 交互模式
+  python gen_title.py "5.55 3x3 NR Avg Nahm"                 # 命令行模式
+  python gen_title.py --list                                 # 列出所有近期纪录
+  python gen_title.py "标题" --uploader "频道名"               # 指定视频发布者
+  python gen_title.py "标题" --uploader "名" --channel-id "ID" # 带频道ID
 
-非纪录视频标题生成流程（fallback_wca_api）：
+执行流程：
 
-  YouTube 视频标题 + 频道名(--uploader)
+  YouTube 视频标题 + 频道名(--uploader) + 频道ID(--channel-id)
           │
           ▼
-  ┌─ _extract_title_parts ─────────────────────────┐
-  │  拆分标题 → 成绩/项目/类型                      │
-  │  选手名优先用 --uploader（去掉非拉丁字符）      │
+  ┌─ 1. 选手身份识别 ──────────────────────────────┐
+  │  选手名一律从 --uploader 获取（禁止从标题猜测）│
+  │  查 channel_aliases.json（频道名 or channel_id）│
+  │  → 获取 WCA ID                                 │
   └────────────────────────────────────────────────┘
           │
           ▼
-  ┌─ _load_channel_alias ──────────────────────────┐
-  │  查 channel_aliases.json（频道名 or channel_id）│
-  │  命中 → 直接用 WCA ID 查 /persons/{id} 获真名  │
-  │  未命中 → 进入 WCA API 搜索                     │
+  ┌─ 2. 纪录路径（优先）──────────────────────────┐
+  │  用 WCA ID 过滤 recentRecords（只看该选手）    │
+  │  再用标题关键词（成绩/项目/类型）匹配           │
+  │  命中 → 生成纪录快讯标题                       │
   └────────────────────────────────────────────────┘
           │ (未命中)
           ▼
-  ┌─ search_wca_person ────────────────────────────┐
-  │  WCA REST API 搜选手（连字符→空格）             │
-  │  精确名字匹配，重名时返回多个候选               │
-  │  唯一匹配时自动写入 channel_aliases.json 缓存  │
+  ┌─ 3. Fallback 路径 ─────────────────────────────┐
+  │  _extract_title_parts: 拆标题 → 成绩/项目/类型 │
+  │  WCA API 查选手历史成绩 → 找到比赛名           │
+  │  WCA Live 补充最近比赛（REST API 有几天延迟）  │
+  │  → 生成通用双语标题                            │
   └────────────────────────────────────────────────┘
-          │
-          ▼  逐个候选人
-  ┌─ find_competition_by_result ───────────────────┐
-  │  WCA REST API /persons/{id}/results            │
-  │  按成绩+项目匹配，取最后一条（最近比赛）        │
-  │  → 返回比赛名 + REST API 最后日期               │
-  └────────────────────────────────────────────────┘
-          │
-          ▼  REST API 成绩有几天延迟，用 WCA Live 补充
-  ┌─ find_latest_live_competition ─────────────────┐
-  │  WCA Live GraphQL: competitions(from: 日期)    │
-  │  一次查询拿到所有近期比赛 + competitors         │
-  │  本地匹配 wcaId → 如果有更新的比赛就覆盖       │
-  └────────────────────────────────────────────────┘
-          │
-          ▼
-  ┌─ format_general_title ─────────────────────────┐
-  │  组装双语标题:                                  │
-  │  CN: 1.14二阶魔方平均 Zayn🇺🇸 | TJHSST 2026🇺🇸  │
-  │  EN: 1.14 2x2 Avg Zayn🇺🇸 | TJHSST 2026🇺🇸     │
-  └────────────────────────────────────────────────┘
+
+  输出示例:
+  CN: 19.02四阶魔方单次 Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
+  EN: 19.02 4x4 Single Teodor Zajder🇵🇱 | Cube Factory League Rogów 2026🇵🇱
 """
 
 import io
@@ -92,6 +75,13 @@ _EVENT_ALIAS.update({
     "5x5": "5x5x5 Cube",
     "6x6": "6x6x6 Cube",
     "7x7": "7x7x7 Cube",
+    # NOTE: 视频标题中常用完整写法 NxNxN
+    "2x2x2": "2x2x2 Cube",
+    "3x3x3": "3x3x3 Cube",
+    "4x4x4": "4x4x4 Cube",
+    "5x5x5": "5x5x5 Cube",
+    "6x6x6": "6x6x6 Cube",
+    "7x7x7": "7x7x7 Cube",
     "3bld": "3x3x3 Blindfolded",
     "4bld": "4x4x4 Blindfolded",
     "5bld": "5x5x5 Blindfolded",
@@ -497,21 +487,20 @@ def find_latest_live_competition(
 
 def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> dict:
     """
-    从关键词列表中分离出 成绩/项目/类型/选手名。
-    uploader: 如果提供了 YouTube 频道名，直接用作选手名（更可靠）。
+    从关键词列表中分离出 成绩/项目/类型。
+    选手名一律从 uploader（视频发布者）获取，不从标题猜测。
     返回 {time_str, event_name, event_id, rec_type, person_name}。
     """
     time_str = None
     event_name = None
     event_id = None
     rec_type = "single"  # 默认
-    name_parts = []
 
     for kw in keywords:
         kw_lower = kw.lower()
 
         # 成绩：匹配数字格式（如 4.89, 1:23.45）
-        if re.match(r"^\d+[.:][\d.]+$", kw) or re.match(r"^\d+\.\d+$", kw):
+        if re.match(r"^\d+[.:]\d[\d.]*$", kw):
             if not time_str:
                 time_str = kw
             continue
@@ -535,13 +524,12 @@ def _extract_title_parts(keywords: list[str], uploader: str | None = None) -> di
             rec_type = "average"
             continue
 
-        # 其余当作选手名的一部分
-        name_parts.append(kw)
+        # NOTE: 其余关键词（人名、PR、WR21 等）直接跳过，不用于解析
 
-    # NOTE: uploader 优先：YouTube 频道名比从标题拆解更可靠
-    # 去除非拉丁字符（如韩文「남승혁」），只保留英文名
-    person = uploader if uploader else " ".join(name_parts)
+    # NOTE: 选手名一律从视频发布者获取，禁止从标题猜测
+    person = uploader
     if person:
+        # 去除非拉丁字符（如韩文「남승혁」），只保留英文名
         person = re.sub(r"[^\x00-\x7F]+", "", person).strip()
 
     return {
@@ -810,7 +798,28 @@ def main():
         all_text = " ".join(args)
         keywords = _parse_keywords(all_text)
 
-        matches = find_matching_records(keywords, records)
+        # NOTE: 有 uploader 时，先按选手身份过滤纪录列表，再做关键词匹配
+        # 杜绝标题关键词碰巧匹配到其他选手纪录的问题
+        filtered_records = records
+        if uploader:
+            alias = _load_channel_alias(uploader, channel_id or "")
+            uploader_wca_id = alias["wca_id"] if alias else None
+
+            if uploader_wca_id:
+                # 按 WCA ID 精确过滤
+                filtered_records = [
+                    r for r in records
+                    if r["result"]["person"].get("wcaId") == uploader_wca_id
+                ]
+            else:
+                # 无缓存时按名字模糊过滤
+                ul = uploader.lower()
+                filtered_records = [
+                    r for r in records
+                    if ul in r["result"]["person"]["name"].lower()
+                ]
+
+        matches = find_matching_records(keywords, filtered_records)
         if not matches:
             # NOTE: 纪录匹配失败 → 回退到 WCA API 查询
             if fallback_wca_api(keywords, write_dir, uploader=uploader,
