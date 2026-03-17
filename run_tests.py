@@ -28,9 +28,11 @@ def extract_info_lines(output: str) -> dict[str, str]:
     return result
 
 
-def run_test(title: str, uploader: str) -> tuple[str, dict[str, str]]:
+def run_test(title: str, uploader: str, channel_id: str = "") -> tuple[str, dict[str, str]]:
     """运行 gen_title.py 并返回 (完整输出, {info_chs, info_eng})"""
     cmd = [sys.executable, "gen_title.py", title, "--uploader", uploader]
+    if channel_id:
+        cmd += ["--channel-id", channel_id]
     result = subprocess.run(
         cmd, capture_output=True, text=True, encoding="utf-8",
         cwd=SCRIPT_DIR,
@@ -52,6 +54,7 @@ def main():
     for i, case in enumerate(cases, 1):
         title = case["Title"]
         uploader = case["Uploader"]
+        channel_id = case.get("Channel ID", "").strip()
         expect_eng = case.get("info_eng", "").strip()
         expect_chs = case.get("info_chs", "").strip()
 
@@ -59,12 +62,14 @@ def main():
         lines.append(f"Test {i}/{total}")
         lines.append(f"  Title:    {title}")
         lines.append(f"  Uploader: {uploader}")
+        if channel_id:
+            lines.append(f"  Channel:  {channel_id}")
         lines.append(f"{'─'*60}")
 
         # NOTE: 实时打印进度，让用户知道当前在跑哪个用例
         print(f"[{i}/{total}] {uploader}: {title[:50]}{'...' if len(title) > 50 else ''}", flush=True)
 
-        full_output, actual = run_test(title, uploader)
+        full_output, actual = run_test(title, uploader, channel_id)
         lines.append(full_output)
         lines.append(f"{'─'*60}")
 

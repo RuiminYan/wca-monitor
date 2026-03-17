@@ -55,6 +55,7 @@ from wca_record_monitor import (
     query_recent_records,
     format_record_message,
     format_time,
+    split_name,
     EVENT_CN_MAP,
     EVENT_EN_MAP,
 )
@@ -587,8 +588,13 @@ def format_general_title(
     pr_tag = "PR" if is_pr else ""
     person_flag = country_flag(person_iso2) if person_iso2 else ""
 
-    cn = f"{time_str}{event_cn}{type_cn}{pr_tag} {person_name}{person_flag}"
-    en = f"{time_str} {event_en} {pr_tag + ' ' if pr_tag else ''}{type_en} {person_name}{person_flag}"
+    # NOTE: 用 split_name 拆分中英文名
+    # 中港台选手：中文标题用中文名，英文标题用英文名
+    # 其他选手（如韩文括号）：两者都用英文名（括号内容被去掉）
+    cn_name, en_name = split_name(person_name, person_iso2)
+
+    cn = f"{time_str}{event_cn}{type_cn}{pr_tag} {cn_name}{person_flag}"
+    en = f"{time_str} {event_en} {pr_tag + ' ' if pr_tag else ''}{type_en} {en_name}{person_flag}"
 
     if comp_name:
         comp_flag = country_flag(comp_iso2) if comp_iso2 else ""
