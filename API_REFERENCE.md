@@ -30,8 +30,64 @@ GET /persons/{wca_id}/results
 ```
 
 - 返回该选手所有历史成绩（可能 2000+ 条），按时间顺序排列
-- 每条含 `event_id`, `best`（单次厘秒）, `average`（平均厘秒）, `competition_id`
 - **延迟：比赛结束后可能几天才同步**
+
+**返回字段（每条记录）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | int | 记录唯一 ID |
+| `round_id` | int | 轮次内部 ID |
+| `pos` | int | 该轮排名 |
+| `best` | int | 最佳单次（厘秒） |
+| `average` | int | 平均（厘秒），0 或负值表示无有效平均 |
+| `name` | string | 选手名（含本地名，如 `"Xuanyi Geng (耿暄一)"`) |
+| `country_iso2` | string | 国家 ISO 代码 |
+| `competition_id` | string | 比赛 ID |
+| `event_id` | string | 项目 ID（如 `"333"`, `"222"`, `"pyram"`） |
+| `round_type_id` | string | 轮次类型（见下表） |
+| `format_id` | string | 格式（`"a"` = Ao5, `"m"` = Mo3, `"1/2/3"` = BestOfN） |
+| `wca_id` | string | 选手 WCA ID |
+| `attempts` | int[] | **每轮全部单次成绩**（厘秒），通常 5 个元素 |
+| `best_index` | int | `attempts` 中最佳成绩的索引（0-based） |
+| `worst_index` | int | `attempts` 中最差成绩的索引（0-based） |
+| `regional_single_record` | string? | 单次纪录标记（`"WR"`, `"CR"`, `"NR"`, null） |
+| `regional_average_record` | string? | 平均纪录标记 |
+
+**`round_type_id` 轮次映射：**
+
+| ID | 轮次 |
+|----|------|
+| `"1"` | First round |
+| `"d"` | Combined First round |
+| `"2"` | Second round |
+| `"3"` | Semi Final |
+| `"c"` | Combined Final |
+| `"f"` | Final |
+
+**`attempts` 特殊值：**
+
+| 值 | 含义 |
+|----|------|
+| `> 0` | 有效成绩（厘秒），如 `442` = 4.42 秒 |
+| `-1` | DNF |
+| `-2` | DNS |
+| `0` | 未参加（如 BestOf3 格式只有 3 次） |
+
+**示例：**
+
+```json
+{
+  "competition_id": "XianjuNxN2026",
+  "event_id": "333",
+  "round_type_id": "f",
+  "best": 402,
+  "average": 426,
+  "attempts": [523, 442, 409, 402, 426],
+  "best_index": 3,
+  "worst_index": 0
+}
+```
 
 ### 1.3 选手参加的比赛
 
