@@ -29,7 +29,7 @@ GET /search/users?q={name}&persons_table=true
 GET /persons/{wca_id}/results
 ```
 
-- 返回该选手所有历史成绩（可能 2000+ 条），按时间顺序排列
+- 返回该选手所有历史成绩，按时间顺序排列（三阶通常 200+ 条）
 - **延迟：比赛结束后可能几天才同步**
 
 **返回字段（每条记录）：**
@@ -40,27 +40,28 @@ GET /persons/{wca_id}/results
 | `round_id` | int | 轮次内部 ID |
 | `pos` | int | 该轮排名 |
 | `best` | int | 最佳单次（厘秒） |
-| `average` | int | 平均（厘秒），0 或负值表示无有效平均 |
+| `average` | int | 平均（厘秒）；`0` 表示无有效平均（如 BestOf3 格式） |
 | `name` | string | 选手名（含本地名，如 `"Xuanyi Geng (耿暄一)"`) |
 | `country_iso2` | string | 国家 ISO 代码 |
 | `competition_id` | string | 比赛 ID |
 | `event_id` | string | 项目 ID（如 `"333"`, `"222"`, `"pyram"`） |
 | `round_type_id` | string | 轮次类型（见下表） |
-| `format_id` | string | 格式（`"a"` = Ao5, `"m"` = Mo3, `"1/2/3"` = BestOfN） |
+| `format_id` | string | 格式（`"a"` = Ao5, `"m"` = Mo3, `"1"`/`"2"`/`"3"` = BestOf1/2/3） |
 | `wca_id` | string | 选手 WCA ID |
-| `attempts` | int[] | **每轮全部单次成绩**（厘秒），通常 5 个元素 |
+| `attempts` | int[] | 每轮全部单次成绩（厘秒）；元素数由 `format_id` 决定（Ao5=5, Mo3=3, BestOfN=N） |
 | `best_index` | int | `attempts` 中最佳成绩的索引（0-based） |
 | `worst_index` | int | `attempts` 中最差成绩的索引（0-based） |
-| `regional_single_record` | string? | 单次纪录标记（`"WR"`, `"CR"`, `"NR"`, null） |
-| `regional_average_record` | string? | 平均纪录标记 |
+| `regional_single_record` | string? | 单次纪录标记（`"WR"`, `"CR"`, `"NR"` 或 `null`） |
+| `regional_average_record` | string? | 平均纪录标记（同上） |
 
-**`round_type_id` 轮次映射：**
+**`round_type_id` 常见值：**
 
 | ID | 轮次 |
 |----|------|
 | `"1"` | First round |
 | `"d"` | Combined First round |
 | `"2"` | Second round |
+| `"b"` | Combined Second round |
 | `"3"` | Semi Final |
 | `"c"` | Combined Final |
 | `"f"` | Final |
@@ -72,20 +73,29 @@ GET /persons/{wca_id}/results
 | `> 0` | 有效成绩（厘秒），如 `442` = 4.42 秒 |
 | `-1` | DNF |
 | `-2` | DNS |
-| `0` | 未参加（如 BestOf3 格式只有 3 次） |
+| `0` | 未参加（如 BestOf3 格式第 3 次未执行） |
 
-**示例：**
+**真实响应示例**（耿暄一，仙居 NxN 2026 三阶决赛）：
 
 ```json
 {
+  "id": 7980380,
+  "round_id": 932073,
+  "pos": 1,
+  "best": 402,
+  "average": 426,
+  "name": "Xuanyi Geng (耿暄一)",
+  "country_iso2": "CN",
   "competition_id": "XianjuNxN2026",
   "event_id": "333",
   "round_type_id": "f",
-  "best": 402,
-  "average": 426,
+  "format_id": "a",
+  "wca_id": "2023GENG02",
   "attempts": [523, 442, 409, 402, 426],
   "best_index": 3,
-  "worst_index": 0
+  "worst_index": 0,
+  "regional_single_record": null,
+  "regional_average_record": null
 }
 ```
 
@@ -112,6 +122,7 @@ Header: Accept: application/json
 - 本项目缓存 3 天（`rankings_cache.json`），手动刷新：删除缓存文件即可
 
 ---
+
 
 ## 2. WCA Live GraphQL API
 
