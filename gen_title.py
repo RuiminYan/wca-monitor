@@ -224,10 +224,9 @@ def _parse_keywords(text: str) -> list[str]:
     将用户输入拆分为关键词列表。
     保留数字（包括小数）、英文单词，去掉常见废词。
     """
-    # 用空格和常见分隔符拆分（包括 - 号）
-    tokens = re.split(r"[\s,|\-]+", text.strip())
-    # NOTE: 去除方括号和圆括号，如 [3x3] → 3x3, (0.02 → 0.02
-    tokens = [re.sub(r"[\[\]()]", "", t) for t in tokens]
+    # NOTE: 用空格、常见分隔符和括号拆分
+    # 括号作为分隔符而非简单去除，避免 "Average(Finally" 粘成 "AverageFinally"
+    tokens = re.split(r"[\s,|\-\[\]()]+", text.strip())
     # 去除尾部标点，如 Average! → Average, singel: → singel
     tokens = [t.rstrip("!?.:;") for t in tokens]
     # 过滤掉纯粹的废词和空串
