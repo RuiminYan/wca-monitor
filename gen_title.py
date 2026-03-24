@@ -455,7 +455,8 @@ def find_competition_by_result(
     用 WCA REST API 查选手成绩，反查出对应的比赛。
     time_cs: 成绩（厘秒），event_id: WCA 项目 ID（如 '333'），
     is_average: True=查 average，False=查 best。
-    返回 {comp_id, comp_name, comp_country_iso2} 或 None。
+    返回 {comp_id, comp_name, comp_country_iso2, record_tag} 或 None。
+    record_tag: 纪录标记（"WR"/"CR"/"NR" 或 None）。
     """
     try:
         # NOTE: results 可能有 1000+ 条，需要较长超时
@@ -466,10 +467,15 @@ def find_competition_by_result(
 
         # 按成绩 + 项目过滤
         field = "average" if is_average else "best"
+        # NOTE: 同时提取 NR/CR/WR 纪录标记
+        record_field = "regional_average_record" if is_average else "regional_single_record"
         matching_comps = []
+        record_tag = None  # NR/CR/WR 或 None
         for res in all_results:
             if res["event_id"] == event_id and res.get(field) == time_cs:
                 matching_comps.append(res["competition_id"])
+                # NOTE: 取最新匹配记录的纪录标记（列表按时间顺序，后面覆盖前面）
+                record_tag = res.get(record_field)
 
         print(f"  获取到 {len(all_results)} 条成绩，匹配 {len(matching_comps)} 条")
 
@@ -496,6 +502,7 @@ def find_competition_by_result(
                     "comp_name": comp["name"],
                     "comp_country_iso2": comp["country_iso2"],
                     "rest_last_date": last_date,
+                    "record_tag": record_tag,
                 }
 
         # 比赛没在列表里（成绩还没上传到 WCA 官网），用 ID 作为名字
@@ -504,6 +511,7 @@ def find_competition_by_result(
             "comp_name": target_comp_id,
             "comp_country_iso2": "",
             "rest_last_date": last_date,
+            "record_tag": record_tag,
         }
     except Exception as e:
         print(f"  WCA API 查成绩失败: {e}")
@@ -660,10 +668,11 @@ def format_general_title(
     is_pr: bool = False,
     event_id: str | None = None,
     time_cs: int | None = None,
+    record_tag: str | None = None,
 ) -> tuple[str, str]:
     """
     组装通用中英文标题（fallback 路径）。
-    纪录类型（NR/CR/WR）不从标题获取，只标注 PR 和世界排名。
+    record_tag: REST API 的纪录标记（"NR"/"CR"/"WR" 或 None），优先于 PR 逻辑。
     event_id/time_cs: 用于查询世界排名后缀 /WRxx。
     返回 (cn_title, en_title)。
     """
@@ -677,23 +686,55 @@ def format_general_title(
     # NOTE: 用 split_name 拆分中英文名
     cn_name, en_name = split_name(person_name, person_iso2)
 
-    # NOTE: 先查世界排名，再和 PR 标志组合成 tag
-    # 有PR+排名 → PR/WR65，纯排名 → WR4，纯PR → PR，都没有 → 空
+    # NOTE: 先查世界排名
     rank = None
     if event_id and time_cs:
         rank = RANKINGS.get_world_rank(event_id, rec_type, time_cs)
 
-    if is_pr and rank:
-        tag = f"PR/WR{rank}"
-    elif is_pr:
-        tag = "PR"
-    elif rank:
-        tag = f"WR{rank}"
+    # NOTE: 纪录标签优先级：NR/CR/WR > PR > 纯排名
+    # NR+排名 → 韩国纪录🇰🇷NR/WR26（中文），🇰🇷NR/WR26（英文）
+    # WR → 世界纪录WR（无需排名后缀，WR 本身就是第1）
+    if record_tag:
+        if record_tag == "NR":
+            country_cn = COUNTRY_CN_MAP.get(person_iso2, "")
+            cn_record = f"{country_cn}纪录{person_flag}" if country_cn else f"NR{person_flag}"
+            en_record = f"{person_flag}"
+            if rank:
+                tag = f"{record_tag}/WR{rank}"
+            else:
+                tag = record_tag
+            cn_tag_str = f"{cn_record}{tag}"
+            en_tag_str = f"{en_record}{tag}"
+        elif record_tag == "CR":
+            cr_abbr = ISO2_TO_CR.get(person_iso2, "CR")
+            cr_cn = CR_ABBR_CN.get(cr_abbr, "洲际纪录")
+            cn_record = f"{cr_cn}{person_flag}"
+            en_record = f"{person_flag}"
+            if rank:
+                tag = f"{cr_abbr}/WR{rank}"
+            else:
+                tag = cr_abbr
+            cn_tag_str = f"{cn_record}{tag}"
+            en_tag_str = f"{en_record}{tag}"
+        else:  # WR
+            cn_tag_str = f"世界纪录WR"
+            en_tag_str = f"WR"
+            # NOTE: WR 不显示排名后缀（WR1 无意义）
+        # NOTE: 有纪录标记时不显示选手国旗（已包含在纪录前缀中）
+        cn = f"{time_str}{event_cn}{type_cn}{cn_tag_str} {en_name}"
+        en = f"{time_str} {event_en} {en_tag_str} {type_en} {en_name}"
     else:
-        tag = ""
-
-    cn = f"{time_str}{event_cn}{type_cn}{tag} {cn_name}{person_flag}"
-    en = f"{time_str} {event_en} {tag + ' ' if tag else ''}{type_en} {en_name}{person_flag}"
+        # 无纪录标记：保持原有 PR/WRxx 逻辑
+        if is_pr and rank:
+            tag = f"PR/WR{rank}"
+        elif is_pr:
+            tag = "PR"
+        elif rank:
+            tag = f"WR{rank}"
+        else:
+            tag = ""
+        cn = f"{time_str}{event_cn}{type_cn}{tag} {cn_name}{person_flag}"
+        en = f"{time_str} {event_en} {tag + ' ' if tag else ''}{type_en} {en_name}{person_flag}"
 
     if comp_name:
         comp_flag = country_flag(comp_iso2) if comp_iso2 else ""
@@ -823,6 +864,11 @@ def fallback_wca_api(
             is_pr = True
             print(f"  ✓ 成绩是 {parts['event_name']} {pr_type} PR")
 
+    # NOTE: 从 find_competition_by_result 返回值提取纪录标记（NR/CR/WR）
+    record_tag = comp.get("record_tag") if comp else None
+    if record_tag:
+        print(f"  ✓ 成绩是 {parts['event_name']} {record_tag}")
+
     cn, en = format_general_title(
         parts["time_str"], parts["event_name"], parts["rec_type"],
         person["name"], person["country_iso2"],
@@ -831,10 +877,13 @@ def fallback_wca_api(
         is_pr=is_pr,
         event_id=parts["event_id"],
         time_cs=time_cs,
+        record_tag=record_tag,
     )
 
-    # NOTE: Fallback 路径没有纪录标签，话题只含基础项目
-    cn_topics, en_topics = generate_topics(parts["event_name"])
+    # NOTE: 有纪录标记时生成对应话题（#韩国纪录 等），否则只含基础项目
+    cn_topics, en_topics = generate_topics(
+        parts["event_name"], record_tag=record_tag, person_iso2=person["country_iso2"]
+    )
 
     print()
     print(f"  info_chs: {cn}")

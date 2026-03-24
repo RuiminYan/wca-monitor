@@ -74,16 +74,21 @@ def main():
         lines.append(f"{'─'*60}")
 
         # 比对结果
+        # NOTE: 排名数字会随时间变化，用模糊匹配避免误报
+        # /WR43 → /WR?，只验证格式正确，不验证具体数字
+        def _normalize_rank(s: str) -> str:
+            return re.sub(r'/WR\d+', '/WR?', s)
+
         ok = True
         actual_eng = actual.get("info_eng", "")
         actual_chs = actual.get("info_chs", "")
 
-        if expect_eng and actual_eng != expect_eng:
+        if expect_eng and _normalize_rank(actual_eng) != _normalize_rank(expect_eng):
             lines.append(f"  FAIL info_eng:")
             lines.append(f"    expect: {expect_eng}")
             lines.append(f"    actual: {actual_eng}")
             ok = False
-        if expect_chs and actual_chs != expect_chs:
+        if expect_chs and _normalize_rank(actual_chs) != _normalize_rank(expect_chs):
             lines.append(f"  FAIL info_chs:")
             lines.append(f"    expect: {expect_chs}")
             lines.append(f"    actual: {actual_chs}")
