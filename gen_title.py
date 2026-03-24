@@ -458,34 +458,40 @@ def find_competition_by_result(
     返回 {comp_id, comp_name, comp_country_iso2, record_tag} 或 None。
     record_tag: 纪录标记（"WR"/"CR"/"NR" 或 None）。
     """
+    # 第一步：查选手历史成绩（匹配成绩+项目）
     try:
         # NOTE: results 可能有 1000+ 条，需要较长超时
         print("  查询选手历史成绩...")
         r = requests.get(f"{WCA_API}/persons/{wca_id}/results", timeout=20)
         r.raise_for_status()
         all_results = r.json()
+    except Exception as e:
+        print(f"  WCA API 查成绩失败: {e}")
+        return None
 
-        # 按成绩 + 项目过滤
-        field = "average" if is_average else "best"
-        # NOTE: 同时提取 NR/CR/WR 纪录标记
-        record_field = "regional_average_record" if is_average else "regional_single_record"
-        matching_comps = []
-        record_tag = None  # NR/CR/WR 或 None
-        for res in all_results:
-            if res["event_id"] == event_id and res.get(field) == time_cs:
-                matching_comps.append(res["competition_id"])
-                # NOTE: 取最新匹配记录的纪录标记（列表按时间顺序，后面覆盖前面）
-                record_tag = res.get(record_field)
+    # 按成绩 + 项目过滤
+    field = "average" if is_average else "best"
+    # NOTE: 同时提取 NR/CR/WR 纪录标记
+    record_field = "regional_average_record" if is_average else "regional_single_record"
+    matching_comps = []
+    record_tag = None  # NR/CR/WR 或 None
+    for res in all_results:
+        if res["event_id"] == event_id and res.get(field) == time_cs:
+            matching_comps.append(res["competition_id"])
+            # NOTE: 取最新匹配记录的纪录标记（列表按时间顺序，后面覆盖前面）
+            record_tag = res.get(record_field)
 
-        print(f"  获取到 {len(all_results)} 条成绩，匹配 {len(matching_comps)} 条")
+    print(f"  获取到 {len(all_results)} 条成绩，匹配 {len(matching_comps)} 条")
 
-        if not matching_comps:
-            return None
+    if not matching_comps:
+        return None
 
-        # 取最后一个（最近的比赛），API 结果按时间顺序排列
-        target_comp_id = matching_comps[-1]
+    # 取最后一个（最近的比赛），API 结果按时间顺序排列
+    target_comp_id = matching_comps[-1]
 
-        # 查比赛详情
+    # 第二步：查比赛详情（获取比赛名称和国家）
+    # NOTE: 即使这步失败，也要保留已获取的 record_tag 和 comp_id
+    try:
         print("  查询比赛详情...")
         r2 = requests.get(f"{WCA_API}/persons/{wca_id}/competitions", timeout=10)
         r2.raise_for_status()
@@ -514,8 +520,16 @@ def find_competition_by_result(
             "record_tag": record_tag,
         }
     except Exception as e:
-        print(f"  WCA API 查成绩失败: {e}")
-        return None
+        # FIXME: 比赛列表获取失败，但成绩已匹配到——
+        # 返回 comp_id 作为比赛名（不完美，但保留了 record_tag 不丢信息）
+        print(f"  WCA API 查比赛失败: {e}")
+        return {
+            "comp_id": target_comp_id,
+            "comp_name": target_comp_id,
+            "comp_country_iso2": "",
+            "rest_last_date": "2000-01-01",
+            "record_tag": record_tag,
+        }
 
 
 WCA_LIVE_API = "https://live.worldcubeassociation.org/api"
@@ -722,7 +736,7 @@ def format_general_title(
             # NOTE: WR 不显示排名后缀（WR1 无意义）
         # NOTE: 有纪录标记时不显示选手国旗（已包含在纪录前缀中）
         cn = f"{time_str}{event_cn}{type_cn}{cn_tag_str} {en_name}"
-        en = f"{time_str} {event_en} {en_tag_str} {type_en} {en_name}"
+        en = f"{time_str} {event_en}{en_tag_str} {type_en} {en_name}"
     else:
         # 无纪录标记：保持原有 PR/WRxx 逻辑
         if is_pr and rank:
@@ -840,10 +854,22 @@ def fallback_wca_api(
     else:
         print(f"  找到: {person['name']} ({person['country_iso2']})")
 
-    # NOTE: WCA REST API 成绩有几天延迟。用 WCA Live 检查是否有更新的比赛
-    live_comp = find_latest_live_competition(person["wca_id"], rest_last_date)
-    if live_comp:
-        comp = live_comp
+    # NOTE: WCA REST API 成绩有几天延迟。
+    # 只在 REST API 完全未找到比赛时，才用 WCA Live 补充比赛信息。
+    # 如果 REST API 已找到成绩（comp 有值），不覆盖——宁可用 comp_id 做比赛名，
+    # 也不能猜一个最近的比赛导致张冠李戴。
+    if not comp:
+        live_comp = find_latest_live_competition(person["wca_id"], rest_last_date)
+        if live_comp:
+            comp = live_comp
+    elif comp.get("comp_name") == comp.get("comp_id"):
+        # NOTE: REST API 成绩匹配到了但比赛详情获取失败（comp_name == comp_id），
+        # 尝试用 WCA Live 补充比赛名，但保留 record_tag
+        live_comp = find_latest_live_competition(person["wca_id"], rest_last_date)
+        if live_comp and live_comp.get("comp_id"):
+            # 仅补充比赛名和国家，不替换 record_tag
+            comp["comp_name"] = live_comp["comp_name"]
+            comp["comp_country_iso2"] = live_comp.get("comp_country_iso2", "")
 
     if comp:
         print(f"  比赛: {comp['comp_name']}")

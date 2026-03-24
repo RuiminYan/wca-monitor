@@ -55,6 +55,7 @@ RECORDS_QUERY = """
     result {
       person {
         name
+        wcaId
         country {
           name
           iso2

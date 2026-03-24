@@ -8,7 +8,13 @@
 import csv
 import subprocess
 import sys
+import io
 import re
+
+# NOTE: Windows 默认 stdout 编码为 GBK，遇到韩文等字符会崩溃
+# 强制 UTF-8 避免重定向或直接运行时的编码问题
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
