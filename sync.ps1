@@ -6,7 +6,7 @@
 
 [CmdletBinding()]
 param(
-    [string] $Server = 'root@cuberoot.me',
+    [string] $Server = 'cuberoot',
     [string] $RemoteDir = '/opt/wca-monitor',
     [string] $Service = 'wca-record-monitor,wca-cubing-record-monitor',
     [switch] $All
