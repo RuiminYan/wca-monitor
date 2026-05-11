@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## 服务器
-- 云服务器(47.97.30.181)部署目录 `/opt/wca-monitor/`
+- 云服务器部署目录 `/opt/wca-monitor/`
 - **统一用 SSH 别名 `cuberoot`**（已配 `~/.ssh/config`），不要写 `root@cuberoot.me`：`ssh cuberoot 'cmd'` / `scp file cuberoot:/path/`
 - **服务器拉不到 GitHub**，禁用 `git pull` / `git clone` 假设
 - 部署：本地跑 `D:\cube\wca-monitor\sync.ps1`（默认推全部 .py + 重启两个 record monitor，`-All` 重启四个服务）
