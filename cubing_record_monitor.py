@@ -161,9 +161,10 @@ def fetch_comp_results(cid: int, rounds: list) -> "Tuple[dict, list]":
 
 
 def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
-    """从 live 页 HTML 拿 (cid, events_list, title)。events_list 是 [(eid, rid), ...]。"""
+    """从 live 页 HTML 拿 (cid, events_list, title)。
+    默认拉中文版,中国比赛 title 即为中文(例如 '2026WCA德清短时赛')。"""
     import html, re
-    url = f"https://cubing.com/live/{slug}?lang=en"
+    url = f"https://cubing.com/live/{slug}"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         body = resp.read().decode("utf-8")
@@ -171,7 +172,7 @@ def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
     events = json.loads(html.unescape(re.search(r'data-events="([^"]+)"', body).group(1)))
     rounds = [(ev["i"], rd["i"]) for ev in events for rd in ev["rs"]]
     title_m = re.search(r"<title>([^<]+)</title>", body)
-    title = title_m.group(1).split(" - ")[0].strip() if title_m else slug
+    title = html.unescape(title_m.group(1).split(" - ")[0]).strip() if title_m else slug
     return cid, rounds, title
 
 
