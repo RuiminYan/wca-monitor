@@ -288,7 +288,7 @@ def format_record_message(
     tag 取值:
       "WR"                            — 世界纪录
       "NR"                            — 国家纪录
-      "PR"                            — 个人最好(职业生涯)
+      "PR"                            — 个人纪录(职业生涯)
       "CR" | "AsR" | "ER" | "AfR"
         | "OcR" | "SAR" | "NAR"       — 洲际纪录(CR 表示由 iso2 推导,其余直接使用)
 
@@ -317,7 +317,7 @@ def format_record_message(
         en = f"Breaking News! {time_str} {en_event}{person_flag}NR {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
     elif tag == "PR":
-        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}个人最好{person_flag}PR {cn_name} | {cn_comp_label}"
+        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR {cn_name} | {cn_comp_label}"
         en = f"Breaking News! {time_str} {en_event}{person_flag}PR {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
     else:
@@ -429,7 +429,7 @@ def _combine_same_tag(events: list):
             person_iso2, single.get("person_country_en") or person_iso2)
         type_cn, type_en, display_tag = f"{country_cn}纪录", "NR", "NR"
     elif tag == "PR":
-        type_cn, type_en, display_tag = "个人最好", "PR", "PR"
+        type_cn, type_en, display_tag = "个人纪录", "PR", "PR"
     else:
         cr_abbr = _resolve_cr_abbr(tag, person_iso2)
         type_cn, type_en, display_tag = CR_ABBR_CN.get(cr_abbr, "洲际纪录"), cr_abbr, cr_abbr

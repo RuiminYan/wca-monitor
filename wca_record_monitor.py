@@ -12,6 +12,8 @@ WCA Live 纪录监控工具
 
 import requests
 
+import time
+
 from email_notifier import send_email
 from monitor_utils import (
     load_config, load_known_ids, save_known_ids, send_bark,
@@ -23,12 +25,17 @@ from record_format import (
     format_combined_records,
 )
 from wca_local_names import enrich_name
+from wca_pr_cache import PRCache
+from wca_pr_detector import scan_and_push as scan_pr
 from wca_rankings import RANKINGS
+from watched_wca_ids import all_watched_ids
 
 # === 常量 ===
 
 # 持久化文件:记录已通知过的纪录 ID,避免重复推送
 KNOWN_IDS_FILE = SCRIPT_DIR / "known_ids.json"
+# 已推过的 PR uid(防止重复推送 WCA Live PR)
+KNOWN_PR_IDS_FILE = SCRIPT_DIR / "known_pr_ids.json"
 
 WCA_LIVE_API = "https://live.worldcubeassociation.org/api"
 
@@ -141,9 +148,16 @@ def send_bark_notification(config: dict, cn_text: str, en_text: str, url: str) -
 def main():
     config = load_config()
     known_ids = load_known_ids(KNOWN_IDS_FILE)
+    known_pr_ids = load_known_ids(KNOWN_PR_IDS_FILE)
     target_tags = set(config["tags"])
     nr_countries = set(config["nr_countries"])  # NR 国家过滤白名单
     interval = config["poll_interval"]
+
+    # 关注选手 wcaId 集合(PR 监控用,空则不跑 PR 扫描)
+    watched_ids = set(all_watched_ids().values())
+    pr_cache = PRCache() if watched_ids else None
+    pr_interval = config.get("wca_pr_poll_interval", 60)
+    last_pr_poll = 0.0  # 单调累计,首轮立即扫
 
     log.info("=" * 50)
     log.info("WCA Live 纪录监控已启动")
@@ -152,12 +166,15 @@ def main():
         log.info(f"  NR 国家过滤: {', '.join(sorted(nr_countries))}")
     log.info(f"  轮询间隔: {interval}s")
     log.info(f"  已知纪录数: {len(known_ids)}")
+    if watched_ids:
+        log.info(f"  PR 关注选手数: {len(watched_ids)} (PR 已知 uid: {len(known_pr_ids)})")
     log.info("=" * 50)
 
     killer = GracefulKiller()
 
-    # 首次运行:静默加载当前所有纪录,避免历史纪录触发通知
+    # 首次运行:静默加载当前所有纪录 / PR,避免历史触发通知
     is_first_run = len(known_ids) == 0
+    is_pr_first_run = len(known_pr_ids) == 0
 
     # 启动时更新世界排名(Top 100),优先用本地缓存
     RANKINGS.update_all()
@@ -219,6 +236,24 @@ def main():
             else:
                 log.debug(f"无新纪录 ({len(important)} 条 {'/'.join(target_tags)} 在列)")
 
+            # PR 扫描(关注选手在 ongoing 比赛的 PR;按独立 interval 触发)
+            if (watched_ids and pr_cache is not None
+                    and time.monotonic() - last_pr_poll >= pr_interval):
+                last_pr_poll = time.monotonic()
+                try:
+                    pr_new = scan_pr(config, pr_cache, watched_ids, known_pr_ids,
+                                     is_first_run=is_pr_first_run)
+                except Exception as e:
+                    log.warning(f"PR 扫描失败,本轮跳过: {e}")
+                    pr_new = None
+                if pr_new is not None:
+                    if is_pr_first_run:
+                        if pr_new > 0:
+                            log.info(f"PR 首次运行,静默记录了 {pr_new} 条现有 PR(不推送)")
+                        is_pr_first_run = False  # 成功扫一轮后无条件翻
+                    if pr_new > 0:
+                        save_known_ids(KNOWN_PR_IDS_FILE, known_pr_ids)
+
         except requests.exceptions.RequestException as e:
             log.warning(f"API 请求失败: {e}")
         except Exception as e:
@@ -228,6 +263,7 @@ def main():
 
     # 退出前保存
     save_known_ids(KNOWN_IDS_FILE, known_ids)
+    save_known_ids(KNOWN_PR_IDS_FILE, known_pr_ids)
     log.info("监控已停止,状态已保存")
 
 

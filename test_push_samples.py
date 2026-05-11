@@ -41,6 +41,56 @@ SAMPLES = [
 ]
 
 
+# === PR 样本(手工构造,因为 PR 不在 recentRecords 里)===
+# 覆盖 cubing.com 与 WCA Live 两条 PR 推送路径
+PR_SAMPLES = [
+    ("Bofan Zhang 3x3 双 PR(cubing.com,中文比赛名)", [{
+        "tag": "PR", "rec_type": "single", "attempt_result": 339,
+        "event_id": "333", "event_name": "3x3x3 Cube",
+        "person_name": "Bofan Zhang (张博藩)",
+        "person_iso2": "CN", "person_country_en": "China",
+        "comp_name": "2026WCA德清短时赛", "comp_name_en": "Deqing Small & Special 2026",
+        "comp_iso2": "CN",
+        "url": "https://cubing.com/live/Deqing-Small-Special-2026",
+    }, {
+        "tag": "PR", "rec_type": "average", "attempt_result": 438,
+        "event_id": "333", "event_name": "3x3x3 Cube",
+        "person_name": "Bofan Zhang (张博藩)",
+        "person_iso2": "CN", "person_country_en": "China",
+        "comp_name": "2026WCA德清短时赛", "comp_name_en": "Deqing Small & Special 2026",
+        "comp_iso2": "CN",
+        "url": "https://cubing.com/live/Deqing-Small-Special-2026",
+    }]),
+    ("Zhen Chen 3x3 单 PR(单条模板 + WR rank)", [{
+        "tag": "PR", "rec_type": "single", "attempt_result": 332,
+        "event_id": "333", "event_name": "3x3x3 Cube",
+        "person_name": "Zhen Chen (陈震)",
+        "person_iso2": "CN", "person_country_en": "China",
+        "comp_name": "2026WCA德清短时赛", "comp_name_en": "Deqing Small & Special 2026",
+        "comp_iso2": "CN",
+        "url": "https://cubing.com/live/Deqing-Small-Special-2026",
+    }]),
+    ("Feliks Zemdegs 5x5 PR(WCA Live 全英,无 CJK 名)", [{
+        "tag": "PR", "rec_type": "single", "attempt_result": 3210,
+        "event_id": "555", "event_name": "5x5x5 Cube",
+        "person_name": "Feliks Zemdegs",
+        "person_iso2": "AU", "person_country_en": "Australia",
+        "comp_name": "Melbourne Big Cube Day 2026",
+        "comp_iso2": "AU",
+        "url": "https://live.worldcubeassociation.org/competitions/9999/rounds/99999",
+    }]),
+    ("Yiheng Wang 5x5 Mean PR(mean-of-3 事件)", [{
+        "tag": "PR", "rec_type": "average", "attempt_result": 4520,
+        "event_id": "555", "event_name": "5x5x5 Cube",
+        "person_name": "Yiheng Wang (王艺衡)",
+        "person_iso2": "CN", "person_country_en": "China",
+        "comp_name": "2026WCA德清长时赛", "comp_name_en": "Deqing Long Special 2026",
+        "comp_iso2": "CN",
+        "url": "https://live.worldcubeassociation.org/competitions/9998/rounds/99998",
+    }]),
+]
+
+
 def _select(records, rid, person_substr):
     rs = [r for r in records if r["result"]["round"]["id"] == rid]
     if person_substr:
@@ -95,6 +145,11 @@ def main():
     if fmc:
         cn, en, url = _format(fmc)
         items.append(("FMC 合并(Mean+Single 异 tag)", cn, en, url))
+
+    # PR 样本(手工构造)
+    for label, kwargs_list in PR_SAMPLES:
+        cn, en, url = format_combined_records(kwargs_list)
+        items.append((label, cn, en, url))
 
     mode = "DRY-RUN" if args.dry_run else "PUSH"
     print(f"\n{mode} {len(items)} samples (interval={args.interval}s)\n")

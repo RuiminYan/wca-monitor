@@ -85,7 +85,10 @@ def load_watched_keys(person_dir: str) -> set:
             continue
         name = d.name
         # Python 3.6 兼容:str.isascii 是 3.7+,用 ord 判断
-        if name and ord(name[0]) < 128 and name[0].isalpha():
+        # 仅当首字符 ASCII 字母 + 第二字符非 ASCII(分组前缀紧跟 CJK)才剥前缀,
+        # 否则 `Max Park` / `Feliks Zemdegs` / `Đỗ Quang Hưng` 等会被错误截首字母
+        if (len(name) >= 2 and ord(name[0]) < 128 and name[0].isalpha()
+                and ord(name[1]) >= 128):
             key = name[1:]
         else:
             key = name

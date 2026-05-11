@@ -8,9 +8,12 @@ known_ids.json
 known_comp_ids.json
 known_wca_comp_ids.json
 known_cubing_record_ids.json
+known_pr_ids.json
 cubing_competitions.json
 rankings_cache.json
 wca_local_names_cache.json
+watched_wca_ids_cache.json
+wca_pr_cache.json
 
 # Python
 __pycache__/
