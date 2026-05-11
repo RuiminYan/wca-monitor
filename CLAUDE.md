@@ -27,6 +27,10 @@
 - result row 关键字段：`i`(id) `n`(competitor#) `e/r`(event/round) `b/a/v`(单次/平均/attempts cs) `sr/ar`(single/average record tag, e.g. "AsR" / "WR" / "NR" / "")
 - 不主动 push，~40s 空闲服务端断连，走轮询
 - 测试历史比赛：`python cubing_record_monitor.py --once --comp <slug> --dry-run`
+- 比赛 `live=0` 表示用 WCA Live 等其他系统，`/live/<slug>` 没 data-c，已在 `is_china_in_window` 过滤掉
+- **PR(橙色字)**：`{"type":"result","action":"user","user":{"number":N,"wcaid":...}}` → `result.user`，r 项含 `nb/na` 标记。服务端比对的是 WCA 职业生涯 PR（源码 `CubingChina/cubingchina protected/websocket/handler/ResultHandler.php::actionUser`）
+- `watched_persons_dir` 配置（服务器 `/opt/wca-monitor/watched_persons`）：每个子目录名 = 一位关注选手，首字母 A-Z 前缀剥掉，余下与 cubing.com `user.name` 括号内中文名 / 整名匹配。空则不开 PR 监控
+- 源码 clone：`D:/cube/cubingchina/`（cubing.com 网站完整源码，确认协议细节首选）
 
 ## 测试
 - 改 `record_format` / 合并逻辑 / `wca_local_names` / monitor 聚合后,**必跑 `python test_push_samples.py`** 推送一批样本到 Bark 肉眼核对格式
