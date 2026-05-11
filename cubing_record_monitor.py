@@ -20,6 +20,7 @@ result row 字段(实测):
 """
 import argparse
 import json
+import re
 import time
 import urllib.request
 from pathlib import Path
@@ -56,6 +57,40 @@ _PROVINCE_TO_ISO2 = {
 _DEFAULT_WINDOW_SEC = 30 * 24 * 3600
 
 log = setup_logging("cubing_record")
+
+
+# === 关注选手白名单(PR 监控用)===
+
+_NAME_PAREN_RE = re.compile(r"\(([^)]+)\)")
+
+
+def _match_key(name: str) -> str:
+    """cubing.com user.name → 选手 key(优先取括号内中文名,否则原名)"""
+    m = _NAME_PAREN_RE.search(name or "")
+    return (m.group(1) if m else (name or "")).strip()
+
+
+def load_watched_keys(person_dir: str) -> set:
+    """读取 watched 选手目录,返回 key 集合(目录名首字母为 ASCII 字母时去掉前缀)。
+    规则与 D:/cube/video-by-face/fetch_competition.py 的 load_person_map 一致。"""
+    if not person_dir:
+        return set()
+    p = Path(person_dir)
+    if not p.is_dir():
+        log.warning("watched_persons_dir 不存在: %s", person_dir)
+        return set()
+    keys = set()
+    for d in p.iterdir():
+        if not d.is_dir():
+            continue
+        name = d.name
+        if name and name[0].isascii() and name[0].isalpha():
+            key = name[1:]
+        else:
+            key = name
+        if key:
+            keys.add(key.strip())
+    return keys
 
 
 # === HTTP helpers ===
@@ -113,11 +148,15 @@ def _open_ws():
     return ws
 
 
-def fetch_comp_results(cid: int, rounds: list) -> "Tuple[dict, list]":
+def fetch_comp_results(cid: int, rounds: list,
+                       watched_keys: set = None) -> "Tuple[dict, list, list]":
     """
-    拉单场比赛所有 round 的 result.all。
+    拉单场比赛所有 round 的 result.all,以及(可选)关注选手的 PR rows。
     rounds: [(event_id, round_id), ...]
-    返回 (users_map, all_rows),all_rows 已附 _event/_round 字段。
+    watched_keys: 关注选手 key 集合(中文名 / 英文名),空则不查 PR。
+    返回 (users_map, all_rows, pr_rows)。
+      pr_rows 是 cubing.com `result.user` 返回的 nb/na 标记 row,每条多了
+      _event(事件 ID)用以补全(因为 r 项原 schema 不带 event)。
     """
     ws = _open_ws()
     try:
@@ -154,12 +193,77 @@ def fetch_comp_results(cid: int, rounds: list) -> "Tuple[dict, list]":
                 received_rounds += 1
                 for row in msg.get("data", []):
                     rows.append(row)
-        return users, rows
+
+        # PR 扫描:对参赛 + 关注的选手发 result.user 请求,收 nb/na 标记
+        pr_rows = []
+        if watched_keys and users:
+            watched_pairs = []
+            for number, u in users.items():
+                if not u.get("wcaid"):
+                    continue
+                if _match_key(u.get("name", "")) in watched_keys:
+                    watched_pairs.append((number, u["wcaid"], u.get("name", "")))
+            for number, wcaid, name in watched_pairs:
+                pr_rows.extend(_fetch_user_pr_rows(ws, cid, number, wcaid, name))
+
+        return users, rows, pr_rows
     finally:
         try:
             ws.close()
         except Exception:
             pass
+
+
+def _fetch_user_pr_rows(ws, cid: int, number: int, wcaid: str, name: str) -> list:
+    """发送 result.user 请求,返回该选手 nb/na 为 true 的 row 列表(附 _event/_wcaid/_name)。
+    cubing.com 服务端把 nb/na 设为 true 即"破职业生涯 PR"的标记,
+    对应前端的橙色字。"""
+    try:
+        ws.send(json.dumps({
+            "type": "result", "action": "user",
+            "user": {"number": number, "wcaid": wcaid},
+        }))
+    except Exception as e:
+        log.warning("send user req failed wcaid=%s: %s", wcaid, e)
+        return []
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        try:
+            raw = ws.recv()
+        except websocket.WebSocketTimeoutException:
+            return []
+        except Exception as e:
+            log.warning("recv user response failed wcaid=%s: %s", wcaid, e)
+            return []
+        if not raw:
+            continue
+        try:
+            msg = json.loads(raw)
+        except Exception:
+            continue
+        if msg.get("type") != "result.user":
+            # 边角消息(比如别人推送过来的 broadcast),继续等
+            continue
+        data = msg.get("data", [])
+        pr_rows = []
+        current_event = None
+        for entry in data:
+            t = entry.get("t")
+            if t == "e":
+                current_event = entry.get("e")
+            elif t == "r":
+                # 跳过 sr/ar 已经触发 record 推送的 row(record 路径已覆盖)
+                if entry.get("sr") or entry.get("ar"):
+                    continue
+                if entry.get("nb") or entry.get("na"):
+                    pr_rows.append({
+                        **entry,
+                        "_event": current_event,
+                        "_wcaid": wcaid,
+                        "_name": name,
+                    })
+        return pr_rows
+    return []
 
 
 def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
@@ -254,8 +358,57 @@ def send_bark_notification(cfg: dict, cn: str, en: str, url: str) -> bool:
     return send_bark(cfg, cn, en, url, "WCA Records", sound="multiwayinvitation")
 
 
-def scan_comp(comp: dict) -> list:
-    """扫描单场比赛,返回所有纪录事件 dict 列表"""
+def iter_pr_events(pr_rows: list, comp: dict):
+    """
+    把 result.user 返回的 nb/na rows 转成可推送的 PR event 字典。
+    cubing.com 服务端 nb/na 是累积标记(同选手同事件初赛/复赛/决赛都可能标),
+    这里按 (wcaid, event_id, rec_type) 去重,只取最快的那条。
+    同选手同事件的 single + average PB 共享 group_key,会合并推送("双 PB" 模板)。
+    """
+    c_iso2 = comp_iso2(comp)
+    comp_name = comp.get("name") or comp.get("alias", "")
+    slug = comp.get("alias", "")
+
+    # (wcaid, event_id, rec_type) → (row, value)
+    best = {}
+    for row in pr_rows:
+        wcaid = row.get("_wcaid", "")
+        # r.e 是字符串 "333";t:"e" 顶部 e 是 int — 用 r.e 优先,fallback 用 str(_event)
+        event_id = row.get("e") or str(row.get("_event") or "")
+        for kind, rec_type, vf in (("nb", "single", "b"), ("na", "average", "a")):
+            if not row.get(kind):
+                continue
+            v = row.get(vf)
+            if v is None or v <= 0:
+                continue
+            k = (wcaid, event_id, rec_type)
+            if k not in best or v < best[k][1]:
+                best[k] = (row, v)
+
+    for (wcaid, event_id, rec_type), (row, v) in best.items():
+        i = row.get("i")
+        if not i:
+            continue
+        field = "nb" if rec_type == "single" else "na"
+        yield {
+            "uid": f"cubing-{i}-{field}",
+            # 同选手同事件 single+avg 合并(无论它们来自哪个 round)
+            "group_key": f"cubing-pr-{wcaid}-{event_id}",
+            "tag": "PB",
+            "rec_type": rec_type,
+            "attempt_result": v,
+            "event_id": event_id,
+            "round_id": row.get("r"),
+            "person_name": row.get("_name", ""),
+            "person_region": row.get("_region") or "China",
+            "comp_iso2": c_iso2,
+            "comp_name": comp_name,
+            "slug": slug,
+        }
+
+
+def scan_comp(comp: dict, watched_keys: set = None) -> list:
+    """扫描单场比赛,返回所有 record + PR 事件 dict 列表"""
     slug = comp.get("alias")
     if not slug:
         log.warning("comp without alias: id=%s name=%s", comp.get("id"), comp.get("name"))
@@ -267,15 +420,21 @@ def scan_comp(comp: dict) -> list:
         return []
     if not rounds:
         return []
-    # 缺少 name(测试模式)时回填 live 页 title
     if not comp.get("name") or comp["name"] == slug:
         comp = dict(comp, name=title)
     try:
-        users, rows = fetch_comp_results(cid, rounds)
+        users, rows, pr_rows = fetch_comp_results(cid, rounds, watched_keys)
     except Exception as e:
         log.warning("fetch ws results failed cid=%s: %s", cid, e)
         return []
-    return list(iter_record_events(rows, users, comp))
+    # 为 PR row 补 region 字段(从 users map 反查)
+    for pr in pr_rows:
+        u = users.get(pr.get("n"))
+        if u:
+            pr["_region"] = u.get("region")
+    events = list(iter_record_events(rows, users, comp))
+    events.extend(iter_pr_events(pr_rows, comp))
+    return events
 
 
 def process_events(cfg: dict, events: list, known_ids: set,
@@ -287,6 +446,9 @@ def process_events(cfg: dict, events: list, known_ids: set,
 
     def _wanted(ev: dict) -> bool:
         tag = ev["tag"]
+        # PB: 只要进了 events 列表(已被 watched_keys 过滤),无条件放行
+        if tag == "PB":
+            return True
         # tag 过滤:CR 通配所有具体洲缩写,其余精确匹配
         if not (tag in target_tags or (tag in CR_ABBR_CN and "CR" in target_tags)):
             return False
@@ -334,7 +496,7 @@ def process_events(cfg: dict, events: list, known_ids: set,
 # === 主循环 ===
 
 def run_once(cfg: dict, known_ids: set, slug_override: str = None,
-             dry_run: bool = False) -> int:
+             dry_run: bool = False, watched_keys: set = None) -> int:
     """单次扫描全部目标比赛,返回新纪录条数。
     cubing 监控不走 wca-record-monitor 的首次启动静默策略:每场扫到的未 known
     纪录都会推送,正合用户"过去 N 天补推 + 已 push 不重推"的需求。
@@ -345,11 +507,10 @@ def run_once(cfg: dict, known_ids: set, slug_override: str = None,
     now = int(time.time())
     new_total = 0
     if slug_override:
-        # 测试用:直接指定 slug,跳过列表过滤
         comp = {"alias": slug_override, "name": slug_override,
                 "locations": [{"province": "测试"}], "date": {"from": 0, "to": now}}
-        events = scan_comp(comp)
-        log.info("scan slug=%s → %d record events", slug_override, len(events))
+        events = scan_comp(comp, watched_keys)
+        log.info("scan slug=%s → %d events (record+PR)", slug_override, len(events))
         new_total += process_events(cfg, events, known_ids,
                                     dry_run, target_tags, nr_countries)
         return new_total
@@ -363,9 +524,9 @@ def run_once(cfg: dict, known_ids: set, slug_override: str = None,
     targets = [c for c in comps if is_china_in_window(c, now, window_sec)]
     log.info("CN comps in last %d days: %d", window_days, len(targets))
     for comp in targets:
-        events = scan_comp(comp)
+        events = scan_comp(comp, watched_keys)
         if events:
-            log.info("  %s: %d record events", comp.get("alias"), len(events))
+            log.info("  %s: %d events (record+PR)", comp.get("alias"), len(events))
         new_total += process_events(cfg, events, known_ids,
                                     dry_run, target_tags, nr_countries)
     return new_total
@@ -384,11 +545,13 @@ def main():
     known_ids = load_known_ids(KNOWN_IDS_FILE)
     interval = cfg.get("cubing_record_poll_interval", cfg.get("poll_interval", 60))
     window_days = cfg.get("cubing_record_window_days", 30)
+    watched_keys = load_watched_keys(cfg.get("watched_persons_dir", ""))
 
     log.info("=" * 50)
     log.info("cubing.com 纪录监控启动 once=%s dry_run=%s", args.once, args.dry_run)
     log.info("  监控类型: %s", ",".join(sorted(cfg.get("tags", ["WR", "CR", "NR"]))))
     log.info("  扫描窗口: 过去 %d 天", window_days)
+    log.info("  PR 关注选手数: %d", len(watched_keys))
     log.info("  已知纪录数: %d", len(known_ids))
     if args.comp:
         log.info("  测试比赛: %s", args.comp)
@@ -398,7 +561,7 @@ def main():
 
     if args.once or args.comp:
         n = run_once(cfg, known_ids, slug_override=args.comp,
-                     dry_run=args.dry_run)
+                     dry_run=args.dry_run, watched_keys=watched_keys)
         if n > 0 and not args.dry_run:
             save_known_ids(KNOWN_IDS_FILE, known_ids)
         log.info("done. new=%d", n)
@@ -407,7 +570,7 @@ def main():
     killer = GracefulKiller()
     while not killer.kill_now:
         try:
-            n = run_once(cfg, known_ids)
+            n = run_once(cfg, known_ids, watched_keys=watched_keys)
             if n > 0:
                 save_known_ids(KNOWN_IDS_FILE, known_ids)
         except Exception as e:

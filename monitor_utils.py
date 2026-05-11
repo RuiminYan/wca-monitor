@@ -88,6 +88,10 @@ def load_config() -> dict:
     cfg.setdefault("cubing_record_poll_interval", 60)
     # 粗饼纪录监控扫描窗口:扫 date.from 在过去 N 天内的中国比赛(默认 30 天)
     cfg.setdefault("cubing_record_window_days", 30)
+    # 关注选手目录(每个子目录名 = 一位选手 key,首字母 A-Z 前缀会被剥掉,
+    # 其余作 key 与 cubing.com user.name 的括号内中文名 / 英文名匹配)。
+    # 空则不开启 PR 监控,只推 WR/CR/NR。
+    cfg.setdefault("watched_persons_dir", "")
     return cfg
 
 

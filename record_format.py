@@ -35,6 +35,11 @@ EVENT_CN_MAP = {
     "4x4x4 Blindfolded": "四盲",
     "5x5x5 Blindfolded": "五盲",
     "3x3x3 Multi-Blind": "多盲",
+    # cubing.com 自创事件(非 WCA 官方)
+    "Mirror Blocks": "镜面魔方",
+    "Ivy Cube": "三叶魔方",
+    "Individual": "个人赛",
+    "Team": "团体赛",
 }
 
 EVENT_EN_MAP = {
@@ -55,6 +60,10 @@ EVENT_EN_MAP = {
     "4x4x4 Blindfolded": "4BLD",
     "5x5x5 Blindfolded": "5BLD",
     "3x3x3 Multi-Blind": "3BLD",
+    "Mirror Blocks": "Mirror",
+    "Ivy Cube": "Ivy",
+    "Individual": "Individual",
+    "Team": "Team",
 }
 
 # WCA event id → 标准英文 event name(cubing.com 只给 id 不给名字)
@@ -76,6 +85,11 @@ EVENT_NAME_BY_ID = {
     "444bf": "4x4x4 Blindfolded",
     "555bf": "5x5x5 Blindfolded",
     "333mbf": "3x3x3 Multi-Blind",
+    # cubing.com 自创事件
+    "mirror": "Mirror Blocks",
+    "ivy": "Ivy Cube",
+    "individual": "Individual",
+    "team": "Team",
 }
 
 
@@ -297,6 +311,11 @@ def format_record_message(
         cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{country_cn}纪录{person_flag}NR {cn_name} | {comp_label}"
         en = f"Breaking News! {time_str} {en_event}{person_flag}NR {type_en} {en_name} | {comp_label}"
         cr_abbr = None
+    elif tag == "PB":
+        # 个人最好成绩 — 模板对齐 NR,无 /WRn 后缀(PR 跟世界排名不挂钩)
+        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}个人最好{person_flag}PB {cn_name} | {comp_label}"
+        en = f"Breaking News! {time_str} {en_event}{person_flag}PB {type_en} {en_name} | {comp_label}"
+        return cn, en, url
     else:
         cr_abbr = tag if tag in CR_ABBR_CN else ISO2_TO_CR.get(person_iso2, "CR")
         cr_cn = CR_ABBR_CN.get(cr_abbr, "洲际纪录")
@@ -339,8 +358,8 @@ def _resolve_cr_abbr(tag: str, person_iso2: str) -> str:
 
 
 def _wr_suffix(event_id: str, rec_type: str, attempt_result: int, tag: str) -> str:
-    """NR/CR 的 /WRn 后缀;WR 不追加(隐含 WR1)"""
-    if tag == "WR":
+    """NR/CR 的 /WRn 后缀;WR 隐含 WR1,PB 跟世界排名无关 — 这两类不追加"""
+    if tag in ("WR", "PB"):
         return ""
     rank = RANKINGS.get_world_rank(event_id, rec_type, attempt_result)
     return f"WR{rank}" if rank else ""
@@ -400,6 +419,8 @@ def _combine_same_tag(events: list):
         country_cn = COUNTRY_CN_MAP.get(
             person_iso2, single.get("person_country_en") or person_iso2)
         type_cn, type_en, display_tag = f"{country_cn}纪录", "NR", "NR"
+    elif tag == "PB":
+        type_cn, type_en, display_tag = "个人最好", "PB", "PB"
     else:
         cr_abbr = _resolve_cr_abbr(tag, person_iso2)
         type_cn, type_en, display_tag = CR_ABBR_CN.get(cr_abbr, "洲际纪录"), cr_abbr, cr_abbr
