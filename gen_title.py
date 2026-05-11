@@ -59,9 +59,8 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="repla
 
 import requests
 
-from wca_record_monitor import (
-    query_recent_records,
-    format_record_message,
+from wca_record_monitor import query_recent_records, format_record_message
+from record_format import (
     format_time,
     split_name,
     COUNTRY_CN_MAP,
