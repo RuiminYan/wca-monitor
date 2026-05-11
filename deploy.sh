@@ -28,6 +28,7 @@ PYTHON_MIN="3.6"
 DEPLOY_FILES=(
     "monitor_utils.py"
     "record_format.py"
+    "wca_local_names.py"
     "wca_record_monitor.py"
     "cubing_record_monitor.py"
     "wca_rankings.py"

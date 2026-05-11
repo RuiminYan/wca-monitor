@@ -17,7 +17,7 @@ $here = $PSScriptRoot
 
 # 与 deploy.sh DEPLOY_FILES 对齐
 $names = @(
-    'monitor_utils.py', 'record_format.py', 'wca_rankings.py',
+    'monitor_utils.py', 'record_format.py', 'wca_rankings.py', 'wca_local_names.py',
     'wca_record_monitor.py', 'cubing_com_monitor.py', 'cubing_record_monitor.py',
     'wca_comp_monitor.py', 'email_notifier.py',
     'test_push.py', 'download_competitions.py'

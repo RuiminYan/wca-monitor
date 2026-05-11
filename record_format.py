@@ -191,18 +191,24 @@ COUNTRY_EN_MAP = {
 # === 名字拆分 ===
 
 _NAME_PAREN_RE = re.compile(r"\s*\(([^)]+)\)\s*$")
-_CJK_NAME_COUNTRIES = {"CN", "HK", "TW", "MO"}
+
+
+def _has_cjk(s: str) -> bool:
+    """是否含 CJK Unified Ideographs(基本汉字 4E00-9FFF)"""
+    return any("一" <= c <= "鿿" for c in s)
 
 
 def split_name(full_name: str, iso2: str):
     """
     拆分 WCA 名字为 (cn_name, en_name)。
-    中国/港澳台选手 cn_name 取括号内的中文名,en_name 取英文名。
-    其他选手两者均为英文名。
+    名字括号里含中文(CJK)的,cn_name 用括号内的中文,en_name 用前面的英文。
+    这覆盖中国大陆/港澳台选手,以及马来西亚 / 新加坡等用中文名注册的华人选手
+    (如 Lim Hung (林弘))。括号里非中文 / 无括号则中英文都用英文名。
+    iso2 参数保留作未来扩展,当前不参与判断。
     """
     m = _NAME_PAREN_RE.search(full_name)
     en_name = _NAME_PAREN_RE.sub("", full_name)
-    if m and iso2 in _CJK_NAME_COUNTRIES:
+    if m and _has_cjk(m.group(1)):
         return m.group(1), en_name
     return en_name, en_name
 

@@ -7,8 +7,13 @@ token.json
 known_ids.json
 known_comp_ids.json
 known_wca_comp_ids.json
+known_cubing_record_ids.json
 cubing_competitions.json
 rankings_cache.json
+wca_local_names_cache.json
+
+# 临时调试脚本
+.tmp_*.py
 
 # Python
 __pycache__/

@@ -22,6 +22,7 @@ from record_format import (
     format_record_message as _format_record_message,
     format_combined_records,
 )
+from wca_local_names import enrich_name
 from wca_rankings import RANKINGS
 
 # === 常量 ===
@@ -108,7 +109,8 @@ def _record_to_kwargs(record: dict) -> dict:
         "attempt_result": record["attemptResult"],
         "event_id": event["id"],
         "event_name": event["name"],
-        "person_name": person["name"],
+        # WCA Live 不返本地名,从 WCA REST API 补全 "Lim Hung" → "Lim Hung (林弘)"
+        "person_name": enrich_name(person["name"], person.get("wcaId")),
         "person_iso2": person["country"]["iso2"],
         "person_country_en": person["country"]["name"],
         "comp_name": competition["name"],
