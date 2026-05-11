@@ -70,6 +70,7 @@ PR_SAMPLES = [
         "comp_iso2": "CN",
         "url": "https://cubing.com/live/Deqing-Small-Special-2026",
     }]),
+    # 后两条是虚构样本,url 用选手 WCA 主页(真实可点),实际 PR 推送会用 round 链接
     ("Feliks Zemdegs 5x5 PR(WCA Live 全英,无 CJK 名)", [{
         "tag": "PR", "rec_type": "single", "attempt_result": 3210,
         "event_id": "555", "event_name": "5x5x5 Cube",
@@ -77,7 +78,7 @@ PR_SAMPLES = [
         "person_iso2": "AU", "person_country_en": "Australia",
         "comp_name": "Melbourne Big Cube Day 2026",
         "comp_iso2": "AU",
-        "url": "https://live.worldcubeassociation.org/competitions/9999/rounds/99999",
+        "url": "https://www.worldcubeassociation.org/persons/2009ZEMD01",
     }]),
     ("Yiheng Wang 5x5 Mean PR(mean-of-3 事件)", [{
         "tag": "PR", "rec_type": "average", "attempt_result": 4520,
@@ -86,7 +87,7 @@ PR_SAMPLES = [
         "person_iso2": "CN", "person_country_en": "China",
         "comp_name": "2026WCA德清长时赛", "comp_name_en": "Deqing Long Special 2026",
         "comp_iso2": "CN",
-        "url": "https://live.worldcubeassociation.org/competitions/9998/rounds/99998",
+        "url": "https://www.worldcubeassociation.org/persons/2019WANY36",
     }]),
 ]
 

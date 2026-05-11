@@ -33,10 +33,17 @@
 - `watched_persons_dir` 配置（服务器 `/opt/wca-monitor/watched_persons`）：每个子目录名 = 一位关注选手，首字母 A-Z 前缀剥掉，余下与 cubing.com `user.name` 括号内中文名 / 整名匹配。空则不开 PR 监控
 - 源码 clone：`D:/cube/cubingchina/`（cubing.com 网站完整源码，确认协议细节首选）
 
+## 关注选手 / PR 监控
+- 选手目录:本地 `D:\cube\video-by-face\person\<name>` / 服务器 `/opt/wca-monitor/watched_persons/<name>`
+- WCA Live PR 监控读 `watched_wca_ids_cache.json`(目录名 → wcaId);PR 基线读 `wca_pr_cache.json`;两份均 `main()` 启动时加载,**改动后必须重启服务**
+- 加新选手:本地 `mkdir` 后跑 `D:\cube\wca-monitor\add_watched.ps1`(自动跑 5 步:wcaId 解析 / PR 基线 / 目录同步 / scp / 重启)
+- 同名歧义在选手目录里放 `wca_id.txt` 强制锁定 wcaId
+- 名字剥前缀规则:首字符 ASCII 字母 + 第二字符 **非 ASCII**(CJK)才剥。`Max Park` / `Feliks Zemdegs` 不剥
+
 ## 测试
 - 改 `record_format` / 合并逻辑 / `wca_local_names` / monitor 聚合后,**必跑 `python test_push_samples.py`** 推送一批样本到 Bark 肉眼核对格式
 - `python test_push.py record N --dry-run` 预览不推送
-- 删 `known_ids.json` / `known_comp_ids.json` 重新进静默期，**不补推历史**
+- 删 `known_ids.json` / `known_comp_ids.json` / `known_pr_ids.json` 重新进静默期，**不补推历史**
 
 ## 服务器 SSH host key
 - 已重装过，`~/.ssh/known_hosts` 旧 IP 条目失效；遇到 fingerprint mismatch 时先在云控制台 Web 终端跑 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 比对再决定
