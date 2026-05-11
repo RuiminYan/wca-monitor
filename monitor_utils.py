@@ -74,16 +74,18 @@ def load_config() -> dict:
         sys.exit(1)
 
     cfg.setdefault("bark_server", "https://api.day.app")
-    # 纪录监控默认 30 秒
+    # WCA Live 纪录监控默认 30 秒
     cfg.setdefault("poll_interval", 30)
-    # 纪录类型过滤
+    # 纪录类型过滤(两个纪录监控共用)
     cfg.setdefault("tags", ["WR", "CR"])
-    # NR 国家过滤
+    # NR 国家过滤(两个纪录监控共用)
     cfg.setdefault("nr_countries", [])
     # 粗饼比赛监控默认 1 分钟
     cfg.setdefault("comp_poll_interval", 60)
     # WCA 比赛监控默认 1 分钟
     cfg.setdefault("wca_comp_poll_interval", 60)
+    # 粗饼纪录监控默认 1 分钟(单场比赛 WS fetch 约 1-3 秒)
+    cfg.setdefault("cubing_record_poll_interval", 60)
     return cfg
 
 

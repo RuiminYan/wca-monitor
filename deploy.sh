@@ -1,5 +1,5 @@
 #!/bin/bash
-# WCA 监控套件 — 阿里云服务器一键部署脚本
+# WCA 监控套件 — Linux 服务器一键部署脚本
 #
 # 用法：
 #   bash deploy.sh              # 安装并启动服务
@@ -17,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # systemd 服务名
 SVC_RECORD="wca-record-monitor"
+SVC_CUBING_RECORD="wca-cubing-record-monitor"
 SVC_COMP="wca-comp-monitor"
 SVC_WCA_COMP="wca-wca-comp-monitor"
 
@@ -26,7 +27,9 @@ PYTHON_MIN="3.6"
 # 需要部署的文件（核心代码 + 配置）
 DEPLOY_FILES=(
     "monitor_utils.py"
+    "record_format.py"
     "wca_record_monitor.py"
+    "cubing_record_monitor.py"
     "wca_rankings.py"
     "cubing_com_monitor.py"
     "wca_comp_monitor.py"
@@ -60,16 +63,19 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 if [ "$1" = "--uninstall" ]; then
     echo -e "${CYAN}=== WCA 监控套件卸载 ===${NC}"
     systemctl stop "$SVC_RECORD" 2>/dev/null || true
+    systemctl stop "$SVC_CUBING_RECORD" 2>/dev/null || true
     systemctl stop "$SVC_COMP" 2>/dev/null || true
     systemctl stop "$SVC_WCA_COMP" 2>/dev/null || true
     systemctl stop "${SVC_RECORD}-start.timer" 2>/dev/null || true
     systemctl stop "${SVC_RECORD}-stop.timer" 2>/dev/null || true
     systemctl disable "$SVC_RECORD" 2>/dev/null || true
+    systemctl disable "$SVC_CUBING_RECORD" 2>/dev/null || true
     systemctl disable "$SVC_COMP" 2>/dev/null || true
     systemctl disable "$SVC_WCA_COMP" 2>/dev/null || true
     systemctl disable "${SVC_RECORD}-start.timer" 2>/dev/null || true
     systemctl disable "${SVC_RECORD}-stop.timer" 2>/dev/null || true
     rm -f "/etc/systemd/system/${SVC_RECORD}.service"
+    rm -f "/etc/systemd/system/${SVC_CUBING_RECORD}.service"
     rm -f "/etc/systemd/system/${SVC_COMP}.service"
     rm -f "/etc/systemd/system/${SVC_WCA_COMP}.service"
     rm -f "/etc/systemd/system/${SVC_RECORD}-start.timer"
@@ -87,8 +93,11 @@ fi
 if [ "$1" = "--status" ]; then
     echo -e "${CYAN}=== WCA 监控套件状态 ===${NC}"
     echo ""
-    echo -e "${CYAN}--- 纪录监控 ---${NC}"
+    echo -e "${CYAN}--- WCA Live 纪录监控 ---${NC}"
     systemctl status "$SVC_RECORD" --no-pager 2>/dev/null || warn "服务未安装"
+    echo ""
+    echo -e "${CYAN}--- 粗饼纪录监控 ---${NC}"
+    systemctl status "$SVC_CUBING_RECORD" --no-pager 2>/dev/null || warn "服务未安装"
     echo ""
     echo -e "${CYAN}--- 粗饼比赛监控 ---${NC}"
     systemctl status "$SVC_COMP" --no-pager 2>/dev/null || warn "服务未安装"
@@ -96,8 +105,11 @@ if [ "$1" = "--status" ]; then
     echo -e "${CYAN}--- WCA 比赛监控 ---${NC}"
     systemctl status "$SVC_WCA_COMP" --no-pager 2>/dev/null || warn "服务未安装"
     echo ""
-    echo -e "${CYAN}--- 纪录监控最近日志 (20行) ---${NC}"
+    echo -e "${CYAN}--- WCA Live 纪录监控最近日志 (20行) ---${NC}"
     journalctl -u "$SVC_RECORD" -n 20 --no-pager 2>/dev/null || true
+    echo ""
+    echo -e "${CYAN}--- 粗饼纪录监控最近日志 (20行) ---${NC}"
+    journalctl -u "$SVC_CUBING_RECORD" -n 20 --no-pager 2>/dev/null || true
     echo ""
     echo -e "${CYAN}--- 粗饼比赛监控最近日志 (20行) ---${NC}"
     journalctl -u "$SVC_COMP" -n 20 --no-pager 2>/dev/null || true
@@ -146,7 +158,8 @@ info "Python ${PY_VERSION} ✓ (${PYTHON_PATH})"
 # === 第二步：安装 pip 依赖 ===
 
 info "安装 Python 依赖..."
-pip3 install --quiet requests 2>/dev/null || python3 -m pip install --quiet requests
+pip3 install --quiet requests websocket-client 2>/dev/null \
+    || python3 -m pip install --quiet requests websocket-client
 
 # 检查是否需要 Gmail 依赖
 if [ -f "${SCRIPT_DIR}/credentials.json" ]; then
@@ -255,6 +268,25 @@ Type=oneshot
 ExecStart=/bin/systemctl stop ${SVC_RECORD}.service
 EOF
 
+# 粗饼纪录监控服务（7×24 全天候,中国比赛随时可能开赛）
+cat > "/etc/systemd/system/${SVC_CUBING_RECORD}.service" <<EOF
+[Unit]
+Description=Cubing.com Record Monitor — 中国比赛纪录快讯推送
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${PYTHON_PATH} ${INSTALL_DIR}/cubing_record_monitor.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 # 比赛监控服务（7×24 全天候运行）
 cat > "/etc/systemd/system/${SVC_COMP}.service" <<EOF
 [Unit]
@@ -305,7 +337,8 @@ systemctl stop "$SVC_COMP" 2>/dev/null || true
 systemctl enable --now "${SVC_RECORD}-start.timer"
 systemctl enable --now "${SVC_RECORD}-stop.timer"
 
-# 比赛监控全天候运行
+# 粗饼纪录监控 + 比赛监控全天候运行
+systemctl enable --now "$SVC_CUBING_RECORD"
 systemctl enable --now "$SVC_COMP"
 systemctl enable --now "$SVC_WCA_COMP"
 
@@ -333,25 +366,32 @@ sleep 2
 
 # 显示服务状态
 RECORD_STATUS=$(systemctl is-active "$SVC_RECORD" 2>/dev/null || echo "failed")
+CUBING_RECORD_STATUS=$(systemctl is-active "$SVC_CUBING_RECORD" 2>/dev/null || echo "failed")
 COMP_STATUS=$(systemctl is-active "$SVC_COMP" 2>/dev/null || echo "failed")
 WCA_COMP_STATUS=$(systemctl is-active "$SVC_WCA_COMP" 2>/dev/null || echo "failed")
 
 if [ "$RECORD_STATUS" = "active" ]; then
-    echo -e "  纪录监控: ${GREEN}● 运行中${NC}"
+    echo -e "  WCA Live 纪录监控: ${GREEN}● 运行中${NC}"
 else
-    echo -e "  纪录监控: ${RED}● 未运行${NC}"
+    echo -e "  WCA Live 纪录监控: ${RED}● 未运行${NC}"
+fi
+
+if [ "$CUBING_RECORD_STATUS" = "active" ]; then
+    echo -e "  粗饼纪录监控:      ${GREEN}● 运行中${NC}"
+else
+    echo -e "  粗饼纪录监控:      ${RED}● 未运行${NC}"
 fi
 
 if [ "$COMP_STATUS" = "active" ]; then
-    echo -e "  粗饼比赛监控: ${GREEN}● 运行中${NC}"
+    echo -e "  粗饼比赛监控:      ${GREEN}● 运行中${NC}"
 else
-    echo -e "  粗饼比赛监控: ${RED}● 未运行${NC}"
+    echo -e "  粗饼比赛监控:      ${RED}● 未运行${NC}"
 fi
 
 if [ "$WCA_COMP_STATUS" = "active" ]; then
-    echo -e "  WCA比赛监控: ${GREEN}● 运行中${NC}"
+    echo -e "  WCA 比赛监控:      ${GREEN}● 运行中${NC}"
 else
-    echo -e "  WCA比赛监控: ${RED}● 未运行${NC}"
+    echo -e "  WCA 比赛监控:      ${RED}● 未运行${NC}"
 fi
 
 echo ""

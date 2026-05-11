@@ -3,6 +3,9 @@
     "bark_device_key": "在Bark App首页复制你的设备密钥",
     "bark_server": "https://api.day.app",
     "poll_interval": 60,
+    "comp_poll_interval": 60,
+    "wca_comp_poll_interval": 60,
+    "cubing_record_poll_interval": 60,
     "tags": [
         "WR",
         "CR",

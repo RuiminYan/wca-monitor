@@ -1,0 +1,394 @@
+"""
+cubing.com 中国比赛纪录快讯监控
+
+每隔指定时间:
+  1. GET cubing.com/api/competition 取比赛列表
+  2. 过滤"中国 ongoing(+ 缓冲)"的比赛
+  3. 对每场比赛通过 WS 拉所有 round 的 result.all
+  4. 任一 row 的 sr / ar 字段非空 → 视为破纪录,按 record_format 模板推 Bark
+
+result row 字段(实测):
+  i:result-id  c:cid  n:competitor#  e:event  r:round  f:format
+  b:best(cs)   a:average(cs)  v:[5 attempts]
+  sr:"WR"/"AsR"/"NR"/...   ar:同上(对应平均成绩)
+
+用法:
+  python cubing_record_monitor.py                         # 守护进程模式
+  python cubing_record_monitor.py --once                  # 单次扫描后退出
+  python cubing_record_monitor.py --once --comp <slug>    # 扫描指定比赛(测试用)
+  python cubing_record_monitor.py --once --comp <slug> --dry-run   # 不推送
+"""
+import argparse
+import json
+import time
+import urllib.request
+from pathlib import Path
+
+import websocket
+
+from email_notifier import send_email
+from monitor_utils import (
+    load_config, load_known_ids, save_known_ids, send_bark,
+    GracefulKiller, poll_wait, setup_logging, SCRIPT_DIR,
+)
+from record_format import (
+    format_record_message, EVENT_NAME_BY_ID, COUNTRY_EN_MAP, CR_ABBR_CN,
+)
+from wca_rankings import RANKINGS
+
+
+# === 路径 / API ===
+
+KNOWN_IDS_FILE = SCRIPT_DIR / "known_cubing_record_ids.json"
+CUBING_API = "https://cubing.com/api/competition"
+WS_URL = "wss://cubing.com/ws"
+HEADERS = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
+
+# 中国(含港澳台)地区在 cubing.com locations.province 中的特殊关键字 → ISO2
+_PROVINCE_TO_ISO2 = {
+    "香港": "HK", "台湾": "TW", "澳门": "MO",
+}
+
+# 比赛结束后多少秒内还继续轮询(防止收赛后补录的纪录)
+# cubing.com 的 date.to 通常是 UTC 0:00 of end day,真实结束时间晚 ~18h,所以给足 24h
+_POST_END_BUFFER = 24 * 3600
+
+log = setup_logging("cubing_record")
+
+
+# === HTTP helpers ===
+
+def http_get_json(url: str) -> dict:
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def list_competitions() -> list:
+    """拉粗饼比赛列表"""
+    return http_get_json(CUBING_API).get("data", [])
+
+
+def is_china_ongoing(comp: dict, now: int) -> bool:
+    """是否中国(含港澳台)且正在进行(含赛后缓冲窗口)"""
+    locations = comp.get("locations") or []
+    if not locations:
+        return False
+    province = (locations[0].get("province") or "").strip()
+    # 港澳台
+    if any(k in province for k in _PROVINCE_TO_ISO2):
+        pass
+    elif not province:
+        # 没省份信息,保守认为不是中国比赛
+        return False
+    # 时间窗
+    date = comp.get("date") or {}
+    start = date.get("from", 0)
+    end = date.get("to", 0)
+    return start <= now <= end + _POST_END_BUFFER
+
+
+def comp_iso2(comp: dict) -> str:
+    """从 locations[0].province 推断比赛所在地区 ISO2,默认 CN"""
+    locations = comp.get("locations") or []
+    if locations:
+        province = locations[0].get("province") or ""
+        for keyword, iso in _PROVINCE_TO_ISO2.items():
+            if keyword in province:
+                return iso
+    return "CN"
+
+
+# === WebSocket fetch ===
+
+def _open_ws():
+    ws = websocket.create_connection(
+        WS_URL, timeout=20, origin="https://cubing.com",
+        header=["User-Agent: Mozilla/5.0"],
+    )
+    ws.settimeout(20)
+    return ws
+
+
+def fetch_comp_results(cid: int, rounds: list) -> "Tuple[dict, list]":
+    """
+    拉单场比赛所有 round 的 result.all。
+    rounds: [(event_id, round_id), ...]
+    返回 (users_map, all_rows),all_rows 已附 _event/_round 字段。
+    """
+    ws = _open_ws()
+    try:
+        ws.send(json.dumps({"type": "competition", "competitionId": cid}))
+        for eid, rid in rounds:
+            ws.send(json.dumps({
+                "type": "result", "action": "fetch",
+                "params": {"event": eid, "round": rid, "filter": "all"},
+            }))
+        users = {}
+        rows = []
+        got_users = False
+        received_rounds = 0
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if got_users and received_rounds >= len(rounds):
+                break
+            try:
+                raw = ws.recv()
+            except websocket.WebSocketTimeoutException:
+                break
+            except Exception as e:
+                log.warning("WS recv error cid=%s: %s", cid, e)
+                break
+            if not raw:
+                continue
+            msg = json.loads(raw)
+            t = msg.get("type")
+            if t == "users":
+                for k, v in msg.get("data", {}).items():
+                    users[int(k)] = v
+                got_users = True
+            elif t == "result.all":
+                received_rounds += 1
+                for row in msg.get("data", []):
+                    rows.append(row)
+        return users, rows
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
+    """从 live 页 HTML 拿 (cid, events_list, title)。events_list 是 [(eid, rid), ...]。"""
+    import html, re
+    url = f"https://cubing.com/live/{slug}?lang=en"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        body = resp.read().decode("utf-8")
+    cid = int(re.search(r'data-c="(\d+)"', body).group(1))
+    events = json.loads(html.unescape(re.search(r'data-events="([^"]+)"', body).group(1)))
+    rounds = [(ev["i"], rd["i"]) for ev in events for rd in ev["rs"]]
+    title_m = re.search(r"<title>([^<]+)</title>", body)
+    title = title_m.group(1).split(" - ")[0].strip() if title_m else slug
+    return cid, rounds, title
+
+
+# === 纪录检测与推送 ===
+
+def iter_record_events(rows: list, users: dict, comp: dict):
+    """
+    遍历一场比赛的所有 result row,产出可推送的 (uid, tag, rec_type, attempt_result,
+    event_id, person, comp, round_id) 元组。
+    uid 用作去重 key: 'cubing-<result_id>-<sr|ar>'。
+    """
+    c_iso2 = comp_iso2(comp)
+    comp_name = comp.get("name") or comp.get("alias", "")
+    slug = comp.get("alias", "")
+    for row in rows:
+        for tag_field, rec_type, value in (("sr", "single", row.get("b")),
+                                           ("ar", "average", row.get("a"))):
+            tag = row.get(tag_field) or ""
+            if not tag:
+                continue
+            if value is None or value <= 0:
+                # 纪录但成绩 DNF/缺失 — 不应该出现,跳过
+                continue
+            user = users.get(row.get("n"))
+            if not user:
+                continue
+            uid = f"cubing-{row['i']}-{tag_field}"
+            yield {
+                "uid": uid,
+                "tag": tag,
+                "rec_type": rec_type,
+                "attempt_result": value,
+                "event_id": row.get("e"),
+                "round_id": row.get("r"),
+                "person_name": user.get("name", ""),
+                "person_region": user.get("region", ""),
+                "comp_iso2": c_iso2,
+                "comp_name": comp_name,
+                "slug": slug,
+            }
+
+
+def build_message(ev: dict):
+    """ev 是 iter_record_events 产出的字典,返回 (cn, en, url)"""
+    person_iso2 = COUNTRY_EN_MAP.get(ev["person_region"], "")
+    event_name = EVENT_NAME_BY_ID.get(ev["event_id"], ev["event_id"])
+    url = f"https://cubing.com/live/{ev['slug']}?event={ev['event_id']}&round={ev['round_id']}"
+    return format_record_message(
+        tag=ev["tag"],
+        rec_type=ev["rec_type"],
+        attempt_result=ev["attempt_result"],
+        event_id=ev["event_id"],
+        event_name=event_name,
+        person_name=ev["person_name"],
+        person_iso2=person_iso2,
+        person_country_en=ev["person_region"],
+        comp_name=ev["comp_name"],
+        comp_iso2=ev["comp_iso2"],
+        url=url,
+    )
+
+
+def send_bark_notification(cfg: dict, cn: str, en: str, url: str) -> bool:
+    return send_bark(cfg, cn, en, url, "WCA Records", sound="multiwayinvitation")
+
+
+def scan_comp(comp: dict) -> list:
+    """扫描单场比赛,返回所有纪录事件 dict 列表"""
+    slug = comp.get("alias")
+    if not slug:
+        log.warning("comp without alias: id=%s name=%s", comp.get("id"), comp.get("name"))
+        return []
+    try:
+        cid, rounds, title = fetch_live_rounds(slug)
+    except Exception as e:
+        log.warning("fetch live page failed slug=%s: %s", slug, e)
+        return []
+    if not rounds:
+        return []
+    # 缺少 name(测试模式)时回填 live 页 title
+    if not comp.get("name") or comp["name"] == slug:
+        comp = dict(comp, name=title)
+    try:
+        users, rows = fetch_comp_results(cid, rounds)
+    except Exception as e:
+        log.warning("fetch ws results failed cid=%s: %s", cid, e)
+        return []
+    return list(iter_record_events(rows, users, comp))
+
+
+def process_events(cfg: dict, events: list, known_ids: set,
+                   is_first_run: bool, dry_run: bool,
+                   target_tags: set, nr_countries: set) -> int:
+    """对一批纪录事件做过滤 + 推送,返回新计数"""
+    new_count = 0
+    for ev in events:
+        # tag 过滤:配置可能写 "AsR" / "CR" / "WR" / "NR"
+        # 如果 target_tags 写了 "CR",视为所有洲际通配;否则要精确匹配
+        tag = ev["tag"]
+        match = (
+            tag in target_tags
+            or (tag in CR_ABBR_CN and "CR" in target_tags)
+        )
+        if not match:
+            continue
+        if tag == "NR" and nr_countries:
+            person_iso2 = COUNTRY_EN_MAP.get(ev["person_region"], "")
+            if person_iso2 not in nr_countries:
+                continue
+        if ev["uid"] in known_ids:
+            continue
+        if is_first_run:
+            known_ids.add(ev["uid"])
+            new_count += 1
+            continue
+        cn, en, url = build_message(ev)
+        log.info("🆕 新纪录: %s", cn)
+        if dry_run:
+            print(f"DRY {cn}\n    {en}\n    {url}")
+            known_ids.add(ev["uid"])
+            new_count += 1
+            continue
+        if send_bark_notification(cfg, cn, en, url):
+            known_ids.add(ev["uid"])
+            new_count += 1
+            if tag == "WR":
+                send_email(cfg, cn, f"{en}\n\n{url}",
+                           recipients_key="email_recipients_record")
+        else:
+            log.warning("  推送失败,下次轮询将重试: %s", ev["uid"])
+    return new_count
+
+
+# === 主循环 ===
+
+def run_once(cfg: dict, known_ids: set, slug_override: str = None,
+             is_first_run: bool = False, dry_run: bool = False) -> int:
+    """单次扫描全部目标比赛,返回新纪录条数"""
+    target_tags = set(cfg.get("tags", ["WR", "CR", "NR"]))
+    nr_countries = set(cfg.get("nr_countries", []))
+    now = int(time.time())
+    new_total = 0
+    if slug_override:
+        # 测试用:直接指定 slug,跳过列表过滤
+        comp = {"alias": slug_override, "name": slug_override,
+                "locations": [{"province": "测试"}], "date": {"from": 0, "to": now}}
+        events = scan_comp(comp)
+        log.info("scan slug=%s → %d record events", slug_override, len(events))
+        new_total += process_events(cfg, events, known_ids, is_first_run,
+                                    dry_run, target_tags, nr_countries)
+        return new_total
+
+    try:
+        comps = list_competitions()
+    except Exception as e:
+        log.warning("list competitions failed: %s", e)
+        return 0
+    targets = [c for c in comps if is_china_ongoing(c, now)]
+    log.info("ongoing CN comps: %d", len(targets))
+    for comp in targets:
+        events = scan_comp(comp)
+        if events:
+            log.info("  %s: %d record events", comp.get("alias"), len(events))
+        new_total += process_events(cfg, events, known_ids, is_first_run,
+                                    dry_run, target_tags, nr_countries)
+    return new_total
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--once", action="store_true", help="只扫描一次后退出")
+    ap.add_argument("--comp", default=None,
+                    help="测试模式:指定比赛 slug(如 Please-Be-Quiet-Hefei-2026),跳过列表过滤")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="检测纪录但不推送 Bark/邮件,也写入 known_ids 防止重复打印")
+    args = ap.parse_args()
+
+    cfg = load_config()
+    known_ids = load_known_ids(KNOWN_IDS_FILE)
+    interval = cfg.get("cubing_record_poll_interval", cfg.get("poll_interval", 60))
+    is_first_run = len(known_ids) == 0
+
+    log.info("=" * 50)
+    log.info("cubing.com 纪录监控启动 once=%s dry_run=%s", args.once, args.dry_run)
+    log.info("  监控类型: %s", ",".join(sorted(cfg.get("tags", ["WR", "CR", "NR"]))))
+    log.info("  已知纪录数: %d", len(known_ids))
+    if args.comp:
+        log.info("  测试比赛: %s", args.comp)
+    log.info("=" * 50)
+
+    RANKINGS.update_all()
+
+    if args.once or args.comp:
+        # 测试模式不静默首次运行,直接产出推送结果
+        n = run_once(cfg, known_ids, slug_override=args.comp,
+                     is_first_run=False, dry_run=args.dry_run)
+        if n > 0 and not args.dry_run:
+            save_known_ids(KNOWN_IDS_FILE, known_ids)
+        log.info("done. new=%d", n)
+        return
+
+    killer = GracefulKiller()
+    while not killer.kill_now:
+        try:
+            n = run_once(cfg, known_ids, is_first_run=is_first_run)
+            if is_first_run and n > 0:
+                log.info("首次运行,静默记录 %d 条现有纪录(不推送)", n)
+                is_first_run = False
+                save_known_ids(KNOWN_IDS_FILE, known_ids)
+            elif n > 0:
+                save_known_ids(KNOWN_IDS_FILE, known_ids)
+        except Exception as e:
+            log.error("未预期错误: %s", e, exc_info=True)
+        poll_wait(interval, killer)
+
+    save_known_ids(KNOWN_IDS_FILE, known_ids)
+    log.info("监控已停止,状态已保存")
+
+
+if __name__ == "__main__":
+    main()
