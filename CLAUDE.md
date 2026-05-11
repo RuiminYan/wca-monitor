@@ -29,6 +29,7 @@
 - 测试历史比赛：`python cubing_record_monitor.py --once --comp <slug> --dry-run`
 
 ## 测试
+- 改 `record_format` / 合并逻辑 / `wca_local_names` / monitor 聚合后,**必跑 `python test_push_samples.py`** 推送一批样本到 Bark 肉眼核对格式
 - `python test_push.py record N --dry-run` 预览不推送
 - 删 `known_ids.json` / `known_comp_ids.json` 重新进静默期，**不补推历史**
 

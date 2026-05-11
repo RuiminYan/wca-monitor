@@ -12,9 +12,6 @@ cubing_competitions.json
 rankings_cache.json
 wca_local_names_cache.json
 
-# 临时调试脚本
-.tmp_*.py
-
 # Python
 __pycache__/
 *.pyc
