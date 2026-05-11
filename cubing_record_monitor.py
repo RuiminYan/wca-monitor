@@ -72,7 +72,11 @@ def list_competitions() -> list:
 
 
 def is_china_in_window(comp: dict, now: int, window_seconds: int) -> bool:
-    """是否中国(含港澳台)且 date.from 在过去 window_seconds 内(不太未来)"""
+    """是否中国(含港澳台)+ 启用了 cubing.com live 直播 + date.from 在过去 window_seconds 内"""
+    # live=0 表示这场没启用 cubing.com 直播(选手用 WCA Live 等其他系统),
+    # /live/<slug> 页面没有 data-c 字段,扫描无意义且会触发 warning。
+    if comp.get("live") != 1:
+        return False
     locations = comp.get("locations") or []
     if not locations:
         return False
@@ -84,7 +88,6 @@ def is_china_in_window(comp: dict, now: int, window_seconds: int) -> bool:
     date = comp.get("date") or {}
     start = date.get("from", 0)
     cutoff = now - window_seconds
-    # 比赛开始时间在 [cutoff, now+24h](容忍少量未来比赛)
     return cutoff <= start <= now + 86400
 
 
