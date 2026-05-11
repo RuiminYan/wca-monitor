@@ -18,7 +18,10 @@ from monitor_utils import (
     GracefulKiller, poll_wait, setup_logging,
     SCRIPT_DIR,
 )
-from record_format import format_record_message as _format_record_message
+from record_format import (
+    format_record_message as _format_record_message,
+    format_combined_records,
+)
 from wca_rankings import RANKINGS
 
 # === 常量 ===
@@ -88,8 +91,8 @@ def query_recent_records() -> list:
     return data.get("data", {}).get("recentRecords", [])
 
 
-def format_record_message(record: dict):
-    """将 WCA Live GraphQL 形状的 record 适配后调用统一格式化函数,返回 (cn, en, url)"""
+def _record_to_kwargs(record: dict) -> dict:
+    """WCA Live GraphQL record → format_record_message / format_combined_records kwargs"""
     result = record["result"]
     person = result["person"]
     round_obj = result["round"]
@@ -99,20 +102,31 @@ def format_record_message(record: dict):
     comp_iso2 = venues[0]["country"]["iso2"] if venues else ""
     round_id = round_obj["id"]
     comp_id = competition["id"]
-    url = f"https://live.worldcubeassociation.org/competitions/{comp_id}/rounds/{round_id}"
-    return _format_record_message(
-        tag=record["tag"],
-        rec_type=record["type"],
-        attempt_result=record["attemptResult"],
-        event_id=event["id"],
-        event_name=event["name"],
-        person_name=person["name"],
-        person_iso2=person["country"]["iso2"],
-        person_country_en=person["country"]["name"],
-        comp_name=competition["name"],
-        comp_iso2=comp_iso2,
-        url=url,
-    )
+    return {
+        "tag": record["tag"],
+        "rec_type": record["type"],
+        "attempt_result": record["attemptResult"],
+        "event_id": event["id"],
+        "event_name": event["name"],
+        "person_name": person["name"],
+        "person_iso2": person["country"]["iso2"],
+        "person_country_en": person["country"]["name"],
+        "comp_name": competition["name"],
+        "comp_iso2": comp_iso2,
+        "url": f"https://live.worldcubeassociation.org/competitions/{comp_id}/rounds/{round_id}",
+    }
+
+
+def format_record_message(record: dict):
+    """单条 WCA Live record → (cn, en, url),保留给 test_push / gen_title 使用"""
+    return _format_record_message(**_record_to_kwargs(record))
+
+
+def _group_key(record: dict) -> str:
+    """合并 key:同 round + 同选手的多条 record 合并为一条推送"""
+    rid = record["result"]["round"]["id"]
+    wid = record["result"]["person"].get("wcaId") or record["result"]["person"]["name"]
+    return f"wcalive-round-{rid}-{wid}"
 
 
 def send_bark_notification(config: dict, cn_text: str, en_text: str, url: str) -> bool:
@@ -161,28 +175,38 @@ def main():
                         continue
                 important.append(r)
 
+            # 过滤已知 → 按 (round, person) 聚合 → 合并推送
+            fresh = [r for r in important if r["id"] not in known_ids]
+            groups = {}
+            for r in fresh:
+                groups.setdefault(_group_key(r), []).append(r)
+
             new_count = 0
-            for record in important:
-                rid = record["id"]
-                if rid not in known_ids:
-                    if is_first_run:
-                        # 首次运行不推送,直接记录
+            for _gk, group in groups.items():
+                # 同组按 (single, average) 稳定排序
+                group.sort(key=lambda r: 0 if r["type"] == "single" else 1)
+                rids = [r["id"] for r in group]
+                if is_first_run:
+                    for rid in rids:
                         known_ids.add(rid)
-                        new_count += 1
-                        continue
+                    new_count += len(rids)
+                    continue
 
-                    cn_text, en_text, url = format_record_message(record)
-                    log.info(f"🆕 新纪录: {cn_text}")
+                has_wr = any(r["tag"] == "WR" for r in group)
+                kwargs_list = [_record_to_kwargs(r) for r in group]
+                cn_text, en_text, url = format_combined_records(kwargs_list)
+                log.info("🆕 新纪录%s: %s", "(合并)" if len(group) > 1 else "", cn_text)
 
-                    # NOTE: 只有 Bark 推送成功才标记为已知,失败时下次轮询会重试
-                    if send_bark_notification(config, cn_text, en_text, url):
+                # NOTE: 只有 Bark 推送成功才标记为已知,失败时下次轮询会重试
+                if send_bark_notification(config, cn_text, en_text, url):
+                    for rid in rids:
                         known_ids.add(rid)
-                        new_count += 1
-                        # NOTE: 邮件只发 WR,CR/NR 不发邮件
-                        if record["tag"] == "WR":
-                            send_email(config, cn_text, f"{en_text}\n\n{url}", recipients_key="email_recipients_record")
-                    else:
-                        log.warning(f"  推送失败,下次轮询将重试: {rid}")
+                    new_count += len(rids)
+                    # NOTE: 邮件只发 WR,CR/NR 不发邮件
+                    if has_wr:
+                        send_email(config, cn_text, f"{en_text}\n\n{url}", recipients_key="email_recipients_record")
+                else:
+                    log.warning(f"  推送失败,下次轮询将重试: {rids}")
 
             if is_first_run and new_count > 0:
                 log.info(f"首次运行,静默记录了 {new_count} 条现有纪录(不推送)")

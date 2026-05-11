@@ -300,3 +300,168 @@ def format_record_message(
                 en = en.replace(cr_abbr, f"{cr_abbr}{suffix}", 1)
 
     return cn, en, url
+
+
+# === 双纪录合并 ===
+
+# tag 优先级:WR > 任一 CR(各洲缩写)> NR
+def _tag_priority(tag: str) -> int:
+    if tag == "WR":
+        return 0
+    if tag in CR_ABBR_CN or tag == "CR":
+        return 1
+    if tag == "NR":
+        return 2
+    return 3
+
+
+def _resolve_cr_abbr(tag: str, person_iso2: str) -> str:
+    """CR 通配 → 具体洲缩写(AsR/ER/...);本身就是具体缩写则直接返回"""
+    if tag in CR_ABBR_CN:
+        return tag
+    return ISO2_TO_CR.get(person_iso2, "CR")
+
+
+def _wr_suffix(event_id: str, rec_type: str, attempt_result: int, tag: str) -> str:
+    """NR/CR 的 /WRn 后缀;WR 不追加(隐含 WR1)"""
+    if tag == "WR":
+        return ""
+    rank = RANKINGS.get_world_rank(event_id, rec_type, attempt_result)
+    return f"WR{rank}" if rank else ""
+
+
+def format_combined_records(events: list):
+    """
+    多条同选手 / 同项目 / 同 round 的纪录合并推送。
+    events 是 1 或 2 条 record-event dict,字段与 format_record_message 的 kwargs 同名。
+
+    长度 1   → 退化为单条 format_record_message
+    长度 2 同 tag(如 NR+NR) → 同类型双纪录模板:
+        纪录快讯! <t单>单次<rs单>, <t均>平均<rs均><项目>双<国家>纪录<旗><tag> <人> | <比赛>
+    长度 2 不同 tag(按优先级 WR>CR>NR 排序) → 拼接模板:
+        纪录快讯! <r1 完整不含比赛>| <r2 缩减:成绩+类型+tag/WR> | <比赛>
+
+    返回 (cn, en, url),url 取 events[0]["url"](合并的前提是同 round)。
+    """
+    if len(events) == 1:
+        return format_record_message(**events[0])
+    if len(events) != 2:
+        raise ValueError(f"format_combined_records expects 1 or 2 events, got {len(events)}")
+
+    e0, e1 = events
+    if e0["tag"] == e1["tag"]:
+        return _combine_same_tag(events)
+    return _combine_diff_tag(events)
+
+
+def _combine_same_tag(events: list):
+    """两条同 tag(必然 sr+ar)合并"""
+    events = sorted(events, key=lambda e: 0 if e["rec_type"] == "single" else 1)
+    single, avg = events
+
+    tag = single["tag"]
+    event_id = single["event_id"]
+    event_name = single["event_name"]
+    person_iso2 = single["person_iso2"]
+    comp_iso2 = single["comp_iso2"]
+    comp_label = f"{single['comp_name']}{country_flag(comp_iso2)}"
+    person_flag = country_flag(person_iso2)
+    cn_name, en_name = split_name(single["person_name"], person_iso2)
+    cn_event = EVENT_CN_MAP.get(event_name, event_name)
+    en_event = EVENT_EN_MAP.get(event_name, event_name)
+
+    t_s = format_time(single["attempt_result"], event_id)
+    t_a = format_time(avg["attempt_result"], event_id)
+    rs_s = _wr_suffix(event_id, "single", single["attempt_result"], tag)
+    rs_a = _wr_suffix(event_id, "average", avg["attempt_result"], tag)
+
+    # 纪录类型描述
+    if tag == "WR":
+        type_cn, type_en, display_tag = "世界纪录", "WR", "WR"
+    elif tag == "NR":
+        country_cn = COUNTRY_CN_MAP.get(
+            person_iso2, single.get("person_country_en") or person_iso2)
+        type_cn, type_en, display_tag = f"{country_cn}纪录", "NR", "NR"
+    else:
+        cr_abbr = _resolve_cr_abbr(tag, person_iso2)
+        type_cn, type_en, display_tag = CR_ABBR_CN.get(cr_abbr, "洲际纪录"), cr_abbr, cr_abbr
+
+    # EN 中 rs 为空时不要留空格
+    rs_s_en = f" {rs_s}" if rs_s else ""
+    rs_a_en = f" {rs_a}" if rs_a else ""
+
+    cn = (f"纪录快讯! {t_s}单次{rs_s}, {t_a}平均{rs_a}"
+          f"{cn_event}双{type_cn}{person_flag}{display_tag} {cn_name} | {comp_label}")
+    en = (f"BREAKING NEWS! {t_s} Single{rs_s_en}, {t_a} Avg{rs_a_en} "
+          f"{en_event}{person_flag}Double {type_en} {en_name} | {comp_label}")
+
+    return cn, en, single["url"]
+
+
+def _combine_diff_tag(events: list):
+    """两条不同 tag 合并,按 tag 优先级排序"""
+    events = sorted(events, key=lambda e: _tag_priority(e["tag"]))
+    r1, r2 = events
+
+    # r1 完整消息(去掉末尾比赛部分)
+    cn1, en1, url = format_record_message(**r1)
+    # 末尾比赛形如 "...{person_flag}| {comp}{flag}" 或 "...| {comp}{flag}"
+    comp_flag = country_flag(r1["comp_iso2"])
+    comp_label = f"{r1['comp_name']}{comp_flag}"
+    # 去掉 "| <comp_label>" 尾巴
+    cn1_no_comp = cn1[:-len(comp_label)].rstrip()
+    if cn1_no_comp.endswith("|"):
+        cn1_no_comp = cn1_no_comp[:-1].rstrip()
+    en1_no_comp = en1[:-len(comp_label)].rstrip()
+    if en1_no_comp.endswith("|"):
+        en1_no_comp = en1_no_comp[:-1].rstrip()
+
+    # r2 缩减:无 "纪录快讯! "、无项目名、无人名、无比赛
+    cn2 = _reduce_segment_cn(r2)
+    en2 = _reduce_segment_en(r2)
+
+    # r1 国旗后无空格 + "| " + r2 缩减 + " | " + 比赛
+    cn = f"{cn1_no_comp}| {cn2} | {comp_label}"
+    en = f"{en1_no_comp}| {en2} | {comp_label}"
+    return cn, en, url
+
+
+def _reduce_segment_cn(ev: dict) -> str:
+    """r2 的中文缩减片段(无项目/人名/国旗/比赛):<成绩><单次/平均><纪录类型><tag>/<WRn>"""
+    tag = ev["tag"]
+    event_id = ev["event_id"]
+    person_iso2 = ev["person_iso2"]
+    t = format_time(ev["attempt_result"], event_id)
+    type_cn = "单次" if ev["rec_type"] == "single" else "平均"
+
+    if tag == "WR":
+        return f"{t}{type_cn}世界纪录WR"
+    if tag == "NR":
+        country_cn = COUNTRY_CN_MAP.get(person_iso2, ev.get("person_country_en") or person_iso2)
+        rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
+        suffix = f"/WR{rank}" if rank else ""
+        return f"{t}{type_cn}{country_cn}纪录NR{suffix}"
+    cr_abbr = _resolve_cr_abbr(tag, person_iso2)
+    rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
+    suffix = f"/WR{rank}" if rank else ""
+    return f"{t}{type_cn}{CR_ABBR_CN.get(cr_abbr, '洲际纪录')}{cr_abbr}{suffix}"
+
+
+def _reduce_segment_en(ev: dict) -> str:
+    """r2 的英文缩减片段(无项目/人名/国旗/比赛)"""
+    tag = ev["tag"]
+    event_id = ev["event_id"]
+    person_iso2 = ev["person_iso2"]
+    t = format_time(ev["attempt_result"], event_id)
+    type_en = "Single" if ev["rec_type"] == "single" else "Avg"
+
+    if tag == "WR":
+        return f"{t} WR {type_en}"
+    if tag == "NR":
+        rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
+        suffix = f"/WR{rank}" if rank else ""
+        return f"{t} NR{suffix} {type_en}"
+    cr_abbr = _resolve_cr_abbr(tag, person_iso2)
+    rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
+    suffix = f"/WR{rank}" if rank else ""
+    return f"{t} {cr_abbr}{suffix} {type_en}"

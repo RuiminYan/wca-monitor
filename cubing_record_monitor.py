@@ -32,7 +32,8 @@ from monitor_utils import (
     GracefulKiller, poll_wait, setup_logging, SCRIPT_DIR,
 )
 from record_format import (
-    format_record_message, EVENT_NAME_BY_ID, COUNTRY_EN_MAP, CR_ABBR_CN,
+    format_record_message, format_combined_records,
+    EVENT_NAME_BY_ID, COUNTRY_EN_MAP, CR_ABBR_CN,
 )
 from wca_rankings import RANKINGS
 
@@ -178,8 +179,8 @@ def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
 
 def iter_record_events(rows: list, users: dict, comp: dict):
     """
-    遍历一场比赛的所有 result row,产出可推送的 (uid, tag, rec_type, attempt_result,
-    event_id, person, comp, round_id) 元组。
+    遍历一场比赛的所有 result row,产出可推送的 event 字典。
+    每条 sr / ar 标记产生一个 event;同一 row 的两条共享 group_key,后续可合并推送。
     uid 用作去重 key: 'cubing-<result_id>-<sr|ar>'。
     """
     c_iso2 = comp_iso2(comp)
@@ -200,6 +201,7 @@ def iter_record_events(rows: list, users: dict, comp: dict):
             uid = f"cubing-{row['i']}-{tag_field}"
             yield {
                 "uid": uid,
+                "group_key": f"cubing-row-{row['i']}",
                 "tag": tag,
                 "rec_type": rec_type,
                 "attempt_result": value,
@@ -213,24 +215,29 @@ def iter_record_events(rows: list, users: dict, comp: dict):
             }
 
 
-def build_message(ev: dict):
-    """ev 是 iter_record_events 产出的字典,返回 (cn, en, url)"""
+def _to_format_kwargs(ev: dict) -> dict:
+    """把内部 event dict 转成 format_record_message / format_combined_records 的 kwargs"""
     person_iso2 = COUNTRY_EN_MAP.get(ev["person_region"], "")
     event_name = EVENT_NAME_BY_ID.get(ev["event_id"], ev["event_id"])
     url = f"https://cubing.com/live/{ev['slug']}?event={ev['event_id']}&round={ev['round_id']}"
-    return format_record_message(
-        tag=ev["tag"],
-        rec_type=ev["rec_type"],
-        attempt_result=ev["attempt_result"],
-        event_id=ev["event_id"],
-        event_name=event_name,
-        person_name=ev["person_name"],
-        person_iso2=person_iso2,
-        person_country_en=ev["person_region"],
-        comp_name=ev["comp_name"],
-        comp_iso2=ev["comp_iso2"],
-        url=url,
-    )
+    return {
+        "tag": ev["tag"],
+        "rec_type": ev["rec_type"],
+        "attempt_result": ev["attempt_result"],
+        "event_id": ev["event_id"],
+        "event_name": event_name,
+        "person_name": ev["person_name"],
+        "person_iso2": person_iso2,
+        "person_country_en": ev["person_region"],
+        "comp_name": ev["comp_name"],
+        "comp_iso2": ev["comp_iso2"],
+        "url": url,
+    }
+
+
+def build_message(events: list):
+    """events 长度 1 或 2,返回 (cn, en, url);多条同 row 合并推送"""
+    return format_combined_records([_to_format_kwargs(e) for e in events])
 
 
 def send_bark_notification(cfg: dict, cn: str, en: str, url: str) -> bool:
@@ -264,43 +271,58 @@ def scan_comp(comp: dict) -> list:
 def process_events(cfg: dict, events: list, known_ids: set,
                    is_first_run: bool, dry_run: bool,
                    target_tags: set, nr_countries: set) -> int:
-    """对一批纪录事件做过滤 + 推送,返回新计数"""
-    new_count = 0
-    for ev in events:
-        # tag 过滤:配置可能写 "AsR" / "CR" / "WR" / "NR"
-        # 如果 target_tags 写了 "CR",视为所有洲际通配;否则要精确匹配
+    """对一批纪录事件做过滤 + 按 group_key 聚合 + 推送,返回新计数"""
+
+    def _wanted(ev: dict) -> bool:
         tag = ev["tag"]
-        match = (
-            tag in target_tags
-            or (tag in CR_ABBR_CN and "CR" in target_tags)
-        )
-        if not match:
-            continue
+        # tag 过滤:CR 通配所有具体洲缩写,其余精确匹配
+        if not (tag in target_tags or (tag in CR_ABBR_CN and "CR" in target_tags)):
+            return False
         if tag == "NR" and nr_countries:
             person_iso2 = COUNTRY_EN_MAP.get(ev["person_region"], "")
             if person_iso2 not in nr_countries:
-                continue
-        if ev["uid"] in known_ids:
-            continue
+                return False
+        return True
+
+    # 先过滤:tag/NR 国家匹配 + 未在 known_ids
+    fresh = [e for e in events if _wanted(e) and e["uid"] not in known_ids]
+
+    # 按 group_key 聚合(同一 row 的 sr+ar 落到同一组)
+    groups = {}
+    for ev in fresh:
+        groups.setdefault(ev["group_key"], []).append(ev)
+
+    new_count = 0
+    for _gk, group in groups.items():
+        # 同组按 (single, average) 顺序稳定排序(供 same-tag 合并;diff-tag 由 format 内部按优先级排)
+        group.sort(key=lambda e: 0 if e["rec_type"] == "single" else 1)
+        uids = [e["uid"] for e in group]
         if is_first_run:
-            known_ids.add(ev["uid"])
-            new_count += 1
+            for uid in uids:
+                known_ids.add(uid)
+            new_count += len(uids)
             continue
-        cn, en, url = build_message(ev)
-        log.info("🆕 新纪录: %s", cn)
+
+        # WR 邮件:组内有 WR 则发邮件
+        has_wr = any(e["tag"] == "WR" for e in group)
+
+        cn, en, url = build_message(group)
+        log.info("🆕 新纪录%s: %s", "(合并)" if len(group) > 1 else "", cn)
         if dry_run:
             print(f"DRY {cn}\n    {en}\n    {url}")
-            known_ids.add(ev["uid"])
-            new_count += 1
+            for uid in uids:
+                known_ids.add(uid)
+            new_count += len(uids)
             continue
         if send_bark_notification(cfg, cn, en, url):
-            known_ids.add(ev["uid"])
-            new_count += 1
-            if tag == "WR":
+            for uid in uids:
+                known_ids.add(uid)
+            new_count += len(uids)
+            if has_wr:
                 send_email(cfg, cn, f"{en}\n\n{url}",
                            recipients_key="email_recipients_record")
         else:
-            log.warning("  推送失败,下次轮询将重试: %s", ev["uid"])
+            log.warning("  推送失败,下次轮询将重试: %s", uids)
     return new_count
 
 
