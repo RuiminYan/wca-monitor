@@ -280,6 +280,7 @@ def format_record_message(
     comp_name: str,
     comp_iso2: str,
     url: str,
+    comp_name_en: str = None,
 ):
     """
     参数化的纪录消息格式化。两个 monitor 共用。
@@ -287,8 +288,11 @@ def format_record_message(
     tag 取值:
       "WR"                            — 世界纪录
       "NR"                            — 国家纪录
+      "PR"                            — 个人最好(职业生涯)
       "CR" | "AsR" | "ER" | "AfR"
         | "OcR" | "SAR" | "NAR"       — 洲际纪录(CR 表示由 iso2 推导,其余直接使用)
+
+    comp_name 用于中文文案,comp_name_en 用于英文(缺省 fallback 到 comp_name)。
 
     返回 (cn_text, en_text, url)。
     """
@@ -300,29 +304,29 @@ def format_record_message(
     en_event = EVENT_EN_MAP.get(event_name, event_name)
     type_cn = "单次" if rec_type == "single" else "平均"
     type_en = _type_en(event_id, rec_type)
-    comp_label = f"{comp_name}{comp_flag}"
+    cn_comp_label = f"{comp_name}{comp_flag}"
+    en_comp_label = f"{comp_name_en or comp_name}{comp_flag}"
 
     if tag == "WR":
-        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}世界纪录WR {cn_name}{person_flag}| {comp_label}"
-        en = f"BREAKING NEWS! {time_str} {en_event} WR {type_en} {en_name}{person_flag}| {comp_label}"
+        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}世界纪录WR {cn_name}{person_flag}| {cn_comp_label}"
+        en = f"BREAKING NEWS! {time_str} {en_event} WR {type_en} {en_name}{person_flag}| {en_comp_label}"
         cr_abbr = None
     elif tag == "NR":
         country_cn = COUNTRY_CN_MAP.get(person_iso2, person_country_en or person_iso2)
-        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{country_cn}纪录{person_flag}NR {cn_name} | {comp_label}"
-        en = f"Breaking News! {time_str} {en_event}{person_flag}NR {type_en} {en_name} | {comp_label}"
+        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{country_cn}纪录{person_flag}NR {cn_name} | {cn_comp_label}"
+        en = f"Breaking News! {time_str} {en_event}{person_flag}NR {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
-    elif tag == "PB":
-        # 个人最好成绩 — 模板对齐 NR,无 /WRn 后缀(PR 跟世界排名不挂钩)
-        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}个人最好{person_flag}PB {cn_name} | {comp_label}"
-        en = f"Breaking News! {time_str} {en_event}{person_flag}PB {type_en} {en_name} | {comp_label}"
-        return cn, en, url
+    elif tag == "PR":
+        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}个人最好{person_flag}PR {cn_name} | {cn_comp_label}"
+        en = f"Breaking News! {time_str} {en_event}{person_flag}PR {type_en} {en_name} | {en_comp_label}"
+        cr_abbr = None
     else:
         cr_abbr = tag if tag in CR_ABBR_CN else ISO2_TO_CR.get(person_iso2, "CR")
         cr_cn = CR_ABBR_CN.get(cr_abbr, "洲际纪录")
-        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{cr_cn}{cr_abbr} {cn_name}{person_flag}| {comp_label}"
-        en = f"Breaking News! {time_str} {en_event} {cr_abbr} {type_en} {en_name}{person_flag}| {comp_label}"
+        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{cr_cn}{cr_abbr} {cn_name}{person_flag}| {cn_comp_label}"
+        en = f"Breaking News! {time_str} {en_event} {cr_abbr} {type_en} {en_name}{person_flag}| {en_comp_label}"
 
-    # 在 NR / CR 后追加 /WRxx(WR 已含"世界纪录"字样,不再叠加)
+    # 在 NR / CR / PR 后追加 /WRxx(WR 已含"世界纪录"字样,不再叠加)
     if tag != "WR":
         rank = RANKINGS.get_world_rank(event_id, rec_type, attempt_result)
         if rank:
@@ -330,6 +334,9 @@ def format_record_message(
             if tag == "NR":
                 cn = cn.replace("NR", f"NR{suffix}", 1)
                 en = en.replace("NR", f"NR{suffix}", 1)
+            elif tag == "PR":
+                cn = cn.replace("PR", f"PR{suffix}", 1)
+                en = en.replace("PR", f"PR{suffix}", 1)
             else:
                 cn = cn.replace(cr_abbr, f"{cr_abbr}{suffix}", 1)
                 en = en.replace(cr_abbr, f"{cr_abbr}{suffix}", 1)
@@ -358,8 +365,8 @@ def _resolve_cr_abbr(tag: str, person_iso2: str) -> str:
 
 
 def _wr_suffix(event_id: str, rec_type: str, attempt_result: int, tag: str) -> str:
-    """NR/CR 的 /WRn 后缀;WR 隐含 WR1,PB 跟世界排名无关 — 这两类不追加"""
-    if tag in ("WR", "PB"):
+    """NR / CR / PR 的 /WRn 后缀;WR 隐含 WR1 不追加"""
+    if tag == "WR":
         return ""
     rank = RANKINGS.get_world_rank(event_id, rec_type, attempt_result)
     return f"WR{rank}" if rank else ""
@@ -399,7 +406,9 @@ def _combine_same_tag(events: list):
     event_name = single["event_name"]
     person_iso2 = single["person_iso2"]
     comp_iso2 = single["comp_iso2"]
-    comp_label = f"{single['comp_name']}{country_flag(comp_iso2)}"
+    comp_flag = country_flag(comp_iso2)
+    cn_comp_label = f"{single['comp_name']}{comp_flag}"
+    en_comp_label = f"{single.get('comp_name_en') or single['comp_name']}{comp_flag}"
     person_flag = country_flag(person_iso2)
     cn_name, en_name = split_name(single["person_name"], person_iso2)
     cn_event = EVENT_CN_MAP.get(event_name, event_name)
@@ -419,8 +428,8 @@ def _combine_same_tag(events: list):
         country_cn = COUNTRY_CN_MAP.get(
             person_iso2, single.get("person_country_en") or person_iso2)
         type_cn, type_en, display_tag = f"{country_cn}纪录", "NR", "NR"
-    elif tag == "PB":
-        type_cn, type_en, display_tag = "个人最好", "PB", "PB"
+    elif tag == "PR":
+        type_cn, type_en, display_tag = "个人最好", "PR", "PR"
     else:
         cr_abbr = _resolve_cr_abbr(tag, person_iso2)
         type_cn, type_en, display_tag = CR_ABBR_CN.get(cr_abbr, "洲际纪录"), cr_abbr, cr_abbr
@@ -433,9 +442,9 @@ def _combine_same_tag(events: list):
     en_prefix = "BREAKING NEWS!" if tag == "WR" else "Breaking News!"
 
     cn = (f"纪录快讯! {t_s}单次{rs_s}, {t_a}平均{rs_a}"
-          f"{cn_event}双{type_cn}{person_flag}{display_tag} {cn_name} | {comp_label}")
+          f"{cn_event}双{type_cn}{person_flag}{display_tag} {cn_name} | {cn_comp_label}")
     en = (f"{en_prefix} {t_s} Single{rs_s_en}, {t_a} {avg_en}{rs_a_en} "
-          f"{en_event}{person_flag}Double {type_en} {en_name} | {comp_label}")
+          f"{en_event}{person_flag}Double {type_en} {en_name} | {en_comp_label}")
 
     return cn, en, single["url"]
 
@@ -452,11 +461,12 @@ def _combine_diff_tag(events: list):
 
     cn1, en1, url = format_record_message(**r1)
     comp_flag = country_flag(r1["comp_iso2"])
-    comp_label = f"{r1['comp_name']}{comp_flag}"
-    cn1_no_comp = cn1[:-len(comp_label)].rstrip()
+    cn_comp_label = f"{r1['comp_name']}{comp_flag}"
+    en_comp_label = f"{r1.get('comp_name_en') or r1['comp_name']}{comp_flag}"
+    cn1_no_comp = cn1[:-len(cn_comp_label)].rstrip()
     if cn1_no_comp.endswith("|"):
         cn1_no_comp = cn1_no_comp[:-1].rstrip()
-    en1_no_comp = en1[:-len(comp_label)].rstrip()
+    en1_no_comp = en1[:-len(en_comp_label)].rstrip()
     if en1_no_comp.endswith("|"):
         en1_no_comp = en1_no_comp[:-1].rstrip()
 
@@ -476,8 +486,8 @@ def _combine_diff_tag(events: list):
     cn_sep = "| " if r1_flag and cn1_no_comp.endswith(r1_flag) else " | "
     en_sep = "| " if r1_flag and en1_no_comp.endswith(r1_flag) else " | "
 
-    cn = f"{cn1_no_comp}{cn_sep}{cn2} | {comp_label}"
-    en = f"{en1_no_comp}{en_sep}{en2} | {comp_label}"
+    cn = f"{cn1_no_comp}{cn_sep}{cn2} | {cn_comp_label}"
+    en = f"{en1_no_comp}{en_sep}{en2} | {en_comp_label}"
     return cn, en, url
 
 

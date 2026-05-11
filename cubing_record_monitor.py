@@ -267,27 +267,43 @@ def _fetch_user_pr_rows(ws, cid: int, number: int, wcaid: str, name: str) -> lis
     return []
 
 
-def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
-    """从 live 页 HTML 拿 (cid, events_list, title)。
-    默认拉中文版,中国比赛 title 即为中文(例如 '2026WCA德清短时赛')。
+def _extract_title(body: str, slug: str) -> str:
+    import html, re
+    m = re.search(r"<title>([^<]+)</title>", body)
+    return html.unescape(m.group(1).split(" - ")[0]).strip() if m else slug
+
+
+def fetch_live_rounds(slug: str) -> "Tuple[int, list, str, str]":
+    """从 live 页 HTML 拿 (cid, events_list, cn_title, en_title)。
+    跑两次 HTTP:默认中文版 + ?lang=en 英文版。
     页面缺少必需字段(被下线 / 取消 / 改版)时抛 RuntimeError,由调用方捕获跳过。"""
     import html, re
-    url = f"https://cubing.com/live/{slug}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    url_cn = f"https://cubing.com/live/{slug}"
+    req = urllib.request.Request(url_cn, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:
-        body = resp.read().decode("utf-8")
-    m_c = re.search(r'data-c="(\d+)"', body)
+        body_cn = resp.read().decode("utf-8")
+    m_c = re.search(r'data-c="(\d+)"', body_cn)
     if not m_c:
         raise RuntimeError(f"data-c not found on /live/{slug} (页面无效或已下线)")
-    m_ev = re.search(r'data-events="([^"]+)"', body)
+    m_ev = re.search(r'data-events="([^"]+)"', body_cn)
     if not m_ev:
         raise RuntimeError(f"data-events not found on /live/{slug}")
     cid = int(m_c.group(1))
     events = json.loads(html.unescape(m_ev.group(1)))
     rounds = [(ev["i"], rd["i"]) for ev in events for rd in ev["rs"]]
-    title_m = re.search(r"<title>([^<]+)</title>", body)
-    title = html.unescape(title_m.group(1).split(" - ")[0]).strip() if title_m else slug
-    return cid, rounds, title
+    cn_title = _extract_title(body_cn, slug)
+
+    # 再拿一次英文 title(EN 推送用)
+    url_en = f"https://cubing.com/live/{slug}?lang=en"
+    try:
+        req_en = urllib.request.Request(url_en, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req_en, timeout=30) as resp:
+            body_en = resp.read().decode("utf-8")
+        en_title = _extract_title(body_en, slug)
+    except Exception as e:
+        log.warning("fetch en title failed slug=%s: %s; fallback to slug", slug, e)
+        en_title = slug.replace("-", " ")
+    return cid, rounds, cn_title, en_title
 
 
 # === 纪录检测与推送 ===
@@ -300,6 +316,7 @@ def iter_record_events(rows: list, users: dict, comp: dict):
     """
     c_iso2 = comp_iso2(comp)
     comp_name = comp.get("name") or comp.get("alias", "")
+    comp_name_en = comp.get("name_en") or comp_name
     slug = comp.get("alias", "")
     for row in rows:
         for tag_field, rec_type, value in (("sr", "single", row.get("b")),
@@ -326,6 +343,7 @@ def iter_record_events(rows: list, users: dict, comp: dict):
                 "person_region": user.get("region", ""),
                 "comp_iso2": c_iso2,
                 "comp_name": comp_name,
+                "comp_name_en": comp_name_en,
                 "slug": slug,
             }
 
@@ -345,6 +363,7 @@ def _to_format_kwargs(ev: dict) -> dict:
         "person_iso2": person_iso2,
         "person_country_en": ev["person_region"],
         "comp_name": ev["comp_name"],
+        "comp_name_en": ev.get("comp_name_en") or ev["comp_name"],
         "comp_iso2": ev["comp_iso2"],
         "url": url,
     }
@@ -364,10 +383,11 @@ def iter_pr_events(pr_rows: list, comp: dict):
     把 result.user 返回的 nb/na rows 转成可推送的 PR event 字典。
     cubing.com 服务端 nb/na 是累积标记(同选手同事件初赛/复赛/决赛都可能标),
     这里按 (wcaid, event_id, rec_type) 去重,只取最快的那条。
-    同选手同事件的 single + average PB 共享 group_key,会合并推送("双 PB" 模板)。
+    同选手同事件的 single + average PR 共享 group_key,会合并推送("双 PR" 模板)。
     """
     c_iso2 = comp_iso2(comp)
     comp_name = comp.get("name") or comp.get("alias", "")
+    comp_name_en = comp.get("name_en") or comp_name
     slug = comp.get("alias", "")
 
     # (wcaid, event_id, rec_type) → (row, value)
@@ -395,7 +415,7 @@ def iter_pr_events(pr_rows: list, comp: dict):
             "uid": f"cubing-{i}-{field}",
             # 同选手同事件 single+avg 合并(无论它们来自哪个 round)
             "group_key": f"cubing-pr-{wcaid}-{event_id}",
-            "tag": "PB",
+            "tag": "PR",
             "rec_type": rec_type,
             "attempt_result": v,
             "event_id": event_id,
@@ -404,6 +424,7 @@ def iter_pr_events(pr_rows: list, comp: dict):
             "person_region": row.get("_region") or "China",
             "comp_iso2": c_iso2,
             "comp_name": comp_name,
+            "comp_name_en": comp_name_en,
             "slug": slug,
         }
 
@@ -415,14 +436,15 @@ def scan_comp(comp: dict, watched_keys: set = None) -> list:
         log.warning("comp without alias: id=%s name=%s", comp.get("id"), comp.get("name"))
         return []
     try:
-        cid, rounds, title = fetch_live_rounds(slug)
+        cid, rounds, cn_title, en_title = fetch_live_rounds(slug)
     except Exception as e:
         log.warning("fetch live page failed slug=%s: %s", slug, e)
         return []
     if not rounds:
         return []
     if not comp.get("name") or comp["name"] == slug:
-        comp = dict(comp, name=title)
+        comp = dict(comp, name=cn_title)
+    comp = dict(comp, name_en=en_title)
     try:
         users, rows, pr_rows = fetch_comp_results(cid, rounds, watched_keys)
     except Exception as e:
@@ -447,8 +469,8 @@ def process_events(cfg: dict, events: list, known_ids: set,
 
     def _wanted(ev: dict) -> bool:
         tag = ev["tag"]
-        # PB: 只要进了 events 列表(已被 watched_keys 过滤),无条件放行
-        if tag == "PB":
+        # PR: 只要进了 events 列表(已被 watched_keys 过滤),无条件放行
+        if tag == "PR":
             return True
         # tag 过滤:CR 通配所有具体洲缩写,其余精确匹配
         if not (tag in target_tags or (tag in CR_ABBR_CN and "CR" in target_tags)):
