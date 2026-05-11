@@ -50,9 +50,10 @@ _PROVINCE_TO_ISO2 = {
     "香港": "HK", "台湾": "TW", "澳门": "MO",
 }
 
-# 比赛结束后多少秒内还继续轮询(防止收赛后补录的纪录)
-# cubing.com 的 date.to 通常是 UTC 0:00 of end day,真实结束时间晚 ~18h,所以给足 24h
-_POST_END_BUFFER = 24 * 3600
+# 监控窗口(秒):扫 date.from 在过去 N 天内开始的中国比赛。
+# 默认 30 天:进行中 + 最近一个月结束的比赛(覆盖赛中赛后补录的纪录),
+# 而非仅 ongoing 24h。已推过的纪录由 known_cubing_record_ids.json dedup。
+_DEFAULT_WINDOW_SEC = 30 * 24 * 3600
 
 log = setup_logging("cubing_record")
 
@@ -70,23 +71,21 @@ def list_competitions() -> list:
     return http_get_json(CUBING_API).get("data", [])
 
 
-def is_china_ongoing(comp: dict, now: int) -> bool:
-    """是否中国(含港澳台)且正在进行(含赛后缓冲窗口)"""
+def is_china_in_window(comp: dict, now: int, window_seconds: int) -> bool:
+    """是否中国(含港澳台)且 date.from 在过去 window_seconds 内(不太未来)"""
     locations = comp.get("locations") or []
     if not locations:
         return False
     province = (locations[0].get("province") or "").strip()
-    # 港澳台
     if any(k in province for k in _PROVINCE_TO_ISO2):
         pass
     elif not province:
-        # 没省份信息,保守认为不是中国比赛
         return False
-    # 时间窗
     date = comp.get("date") or {}
     start = date.get("from", 0)
-    end = date.get("to", 0)
-    return start <= now <= end + _POST_END_BUFFER
+    cutoff = now - window_seconds
+    # 比赛开始时间在 [cutoff, now+24h](容忍少量未来比赛)
+    return cutoff <= start <= now + 86400
 
 
 def comp_iso2(comp: dict) -> str:
@@ -162,14 +161,21 @@ def fetch_comp_results(cid: int, rounds: list) -> "Tuple[dict, list]":
 
 def fetch_live_rounds(slug: str) -> "Tuple[int, list, str]":
     """从 live 页 HTML 拿 (cid, events_list, title)。
-    默认拉中文版,中国比赛 title 即为中文(例如 '2026WCA德清短时赛')。"""
+    默认拉中文版,中国比赛 title 即为中文(例如 '2026WCA德清短时赛')。
+    页面缺少必需字段(被下线 / 取消 / 改版)时抛 RuntimeError,由调用方捕获跳过。"""
     import html, re
     url = f"https://cubing.com/live/{slug}"
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=30) as resp:
         body = resp.read().decode("utf-8")
-    cid = int(re.search(r'data-c="(\d+)"', body).group(1))
-    events = json.loads(html.unescape(re.search(r'data-events="([^"]+)"', body).group(1)))
+    m_c = re.search(r'data-c="(\d+)"', body)
+    if not m_c:
+        raise RuntimeError(f"data-c not found on /live/{slug} (页面无效或已下线)")
+    m_ev = re.search(r'data-events="([^"]+)"', body)
+    if not m_ev:
+        raise RuntimeError(f"data-events not found on /live/{slug}")
+    cid = int(m_c.group(1))
+    events = json.loads(html.unescape(m_ev.group(1)))
     rounds = [(ev["i"], rd["i"]) for ev in events for rd in ev["rs"]]
     title_m = re.search(r"<title>([^<]+)</title>", body)
     title = html.unescape(title_m.group(1).split(" - ")[0]).strip() if title_m else slug
@@ -270,9 +276,11 @@ def scan_comp(comp: dict) -> list:
 
 
 def process_events(cfg: dict, events: list, known_ids: set,
-                   is_first_run: bool, dry_run: bool,
+                   dry_run: bool,
                    target_tags: set, nr_countries: set) -> int:
-    """对一批纪录事件做过滤 + 按 group_key 聚合 + 推送,返回新计数"""
+    """对一批纪录事件做过滤 + 按 group_key 聚合 + 推送,返回新计数。
+    cubing 监控不做首次启动静默 —— 用户要"过去 N 天补推、已 push 不重推",
+    所以未 known 的全推。"""
 
     def _wanted(ev: dict) -> bool:
         tag = ev["tag"]
@@ -285,7 +293,6 @@ def process_events(cfg: dict, events: list, known_ids: set,
                 return False
         return True
 
-    # 先过滤:tag/NR 国家匹配 + 未在 known_ids
     fresh = [e for e in events if _wanted(e) and e["uid"] not in known_ids]
 
     # 按 group_key 聚合(同一 row 的 sr+ar 落到同一组)
@@ -295,14 +302,8 @@ def process_events(cfg: dict, events: list, known_ids: set,
 
     new_count = 0
     for _gk, group in groups.items():
-        # 同组按 (single, average) 顺序稳定排序(供 same-tag 合并;diff-tag 由 format 内部按优先级排)
         group.sort(key=lambda e: 0 if e["rec_type"] == "single" else 1)
         uids = [e["uid"] for e in group]
-        if is_first_run:
-            for uid in uids:
-                known_ids.add(uid)
-            new_count += len(uids)
-            continue
 
         # WR 邮件:组内有 WR 则发邮件
         has_wr = any(e["tag"] == "WR" for e in group)
@@ -330,10 +331,14 @@ def process_events(cfg: dict, events: list, known_ids: set,
 # === 主循环 ===
 
 def run_once(cfg: dict, known_ids: set, slug_override: str = None,
-             is_first_run: bool = False, dry_run: bool = False) -> int:
-    """单次扫描全部目标比赛,返回新纪录条数"""
+             dry_run: bool = False) -> int:
+    """单次扫描全部目标比赛,返回新纪录条数。
+    cubing 监控不走 wca-record-monitor 的首次启动静默策略:每场扫到的未 known
+    纪录都会推送,正合用户"过去 N 天补推 + 已 push 不重推"的需求。
+    """
     target_tags = set(cfg.get("tags", ["WR", "CR", "NR"]))
     nr_countries = set(cfg.get("nr_countries", []))
+    window_days = cfg.get("cubing_record_window_days", 30)
     now = int(time.time())
     new_total = 0
     if slug_override:
@@ -342,7 +347,7 @@ def run_once(cfg: dict, known_ids: set, slug_override: str = None,
                 "locations": [{"province": "测试"}], "date": {"from": 0, "to": now}}
         events = scan_comp(comp)
         log.info("scan slug=%s → %d record events", slug_override, len(events))
-        new_total += process_events(cfg, events, known_ids, is_first_run,
+        new_total += process_events(cfg, events, known_ids,
                                     dry_run, target_tags, nr_countries)
         return new_total
 
@@ -351,13 +356,14 @@ def run_once(cfg: dict, known_ids: set, slug_override: str = None,
     except Exception as e:
         log.warning("list competitions failed: %s", e)
         return 0
-    targets = [c for c in comps if is_china_ongoing(c, now)]
-    log.info("ongoing CN comps: %d", len(targets))
+    window_sec = window_days * 86400
+    targets = [c for c in comps if is_china_in_window(c, now, window_sec)]
+    log.info("CN comps in last %d days: %d", window_days, len(targets))
     for comp in targets:
         events = scan_comp(comp)
         if events:
             log.info("  %s: %d record events", comp.get("alias"), len(events))
-        new_total += process_events(cfg, events, known_ids, is_first_run,
+        new_total += process_events(cfg, events, known_ids,
                                     dry_run, target_tags, nr_countries)
     return new_total
 
@@ -374,11 +380,12 @@ def main():
     cfg = load_config()
     known_ids = load_known_ids(KNOWN_IDS_FILE)
     interval = cfg.get("cubing_record_poll_interval", cfg.get("poll_interval", 60))
-    is_first_run = len(known_ids) == 0
+    window_days = cfg.get("cubing_record_window_days", 30)
 
     log.info("=" * 50)
     log.info("cubing.com 纪录监控启动 once=%s dry_run=%s", args.once, args.dry_run)
     log.info("  监控类型: %s", ",".join(sorted(cfg.get("tags", ["WR", "CR", "NR"]))))
+    log.info("  扫描窗口: 过去 %d 天", window_days)
     log.info("  已知纪录数: %d", len(known_ids))
     if args.comp:
         log.info("  测试比赛: %s", args.comp)
@@ -387,9 +394,8 @@ def main():
     RANKINGS.update_all()
 
     if args.once or args.comp:
-        # 测试模式不静默首次运行,直接产出推送结果
         n = run_once(cfg, known_ids, slug_override=args.comp,
-                     is_first_run=False, dry_run=args.dry_run)
+                     dry_run=args.dry_run)
         if n > 0 and not args.dry_run:
             save_known_ids(KNOWN_IDS_FILE, known_ids)
         log.info("done. new=%d", n)
@@ -398,12 +404,8 @@ def main():
     killer = GracefulKiller()
     while not killer.kill_now:
         try:
-            n = run_once(cfg, known_ids, is_first_run=is_first_run)
-            if is_first_run and n > 0:
-                log.info("首次运行,静默记录 %d 条现有纪录(不推送)", n)
-                is_first_run = False
-                save_known_ids(KNOWN_IDS_FILE, known_ids)
-            elif n > 0:
+            n = run_once(cfg, known_ids)
+            if n > 0:
                 save_known_ids(KNOWN_IDS_FILE, known_ids)
         except Exception as e:
             log.error("未预期错误: %s", e, exc_info=True)

@@ -86,6 +86,8 @@ def load_config() -> dict:
     cfg.setdefault("wca_comp_poll_interval", 60)
     # 粗饼纪录监控默认 1 分钟(单场比赛 WS fetch 约 1-3 秒)
     cfg.setdefault("cubing_record_poll_interval", 60)
+    # 粗饼纪录监控扫描窗口:扫 date.from 在过去 N 天内的中国比赛(默认 30 天)
+    cfg.setdefault("cubing_record_window_days", 30)
     return cfg
 
 

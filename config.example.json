@@ -6,6 +6,7 @@
     "comp_poll_interval": 60,
     "wca_comp_poll_interval": 60,
     "cubing_record_poll_interval": 60,
+    "cubing_record_window_days": 30,
     "tags": [
         "WR",
         "CR",
