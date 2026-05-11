@@ -207,6 +207,16 @@ def split_name(full_name: str, iso2: str):
     return en_name, en_name
 
 
+# 用 mean-of-3 而非 average-of-5 的项目:EN 文案该用 "Mean" 而非 "Avg"
+_MEAN_EVENTS = {"666", "777", "333fm", "444bf", "555bf"}
+
+
+def _type_en(event_id: str, rec_type: str) -> str:
+    if rec_type == "single":
+        return "Single"
+    return "Mean" if event_id in _MEAN_EVENTS else "Avg"
+
+
 # === 时间格式化 ===
 
 def format_time(centiseconds: int, event_id: str) -> str:
@@ -269,7 +279,7 @@ def format_record_message(
     cn_event = EVENT_CN_MAP.get(event_name, event_name)
     en_event = EVENT_EN_MAP.get(event_name, event_name)
     type_cn = "单次" if rec_type == "single" else "平均"
-    type_en = "Single" if rec_type == "single" else "Avg"
+    type_en = _type_en(event_id, rec_type)
     comp_label = f"{comp_name}{comp_flag}"
 
     if tag == "WR":
@@ -376,6 +386,8 @@ def _combine_same_tag(events: list):
     rs_a = _wr_suffix(event_id, "average", avg["attempt_result"], tag)
 
     # 纪录类型描述
+    avg_en = "Mean" if event_id in _MEAN_EVENTS else "Avg"
+
     if tag == "WR":
         type_cn, type_en, display_tag = "世界纪录", "WR", "WR"
     elif tag == "NR":
@@ -390,25 +402,30 @@ def _combine_same_tag(events: list):
     rs_s_en = f" {rs_s}" if rs_s else ""
     rs_a_en = f" {rs_a}" if rs_a else ""
 
+    # 仅 WR 用全大写 "BREAKING NEWS!",CR/NR 用 "Breaking News!"
+    en_prefix = "BREAKING NEWS!" if tag == "WR" else "Breaking News!"
+
     cn = (f"纪录快讯! {t_s}单次{rs_s}, {t_a}平均{rs_a}"
           f"{cn_event}双{type_cn}{person_flag}{display_tag} {cn_name} | {comp_label}")
-    en = (f"BREAKING NEWS! {t_s} Single{rs_s_en}, {t_a} Avg{rs_a_en} "
+    en = (f"{en_prefix} {t_s} Single{rs_s_en}, {t_a} {avg_en}{rs_a_en} "
           f"{en_event}{person_flag}Double {type_en} {en_name} | {comp_label}")
 
     return cn, en, single["url"]
 
 
 def _combine_diff_tag(events: list):
-    """两条不同 tag 合并,按 tag 优先级排序"""
+    """两条不同 tag 合并,按 tag 优先级排序。
+
+    国旗规则:整条合并消息里 person_flag 只出现一次。
+    - r2 是 NR 时:flag 由 r2 缩减片段在 NR 前承担,r1 末尾的 flag 去掉。
+    - 否则:flag 留在 r1 单条模板的原位(NR/WR/CR 模板各自的 flag 位置)。
+    """
     events = sorted(events, key=lambda e: _tag_priority(e["tag"]))
     r1, r2 = events
 
-    # r1 完整消息(去掉末尾比赛部分)
     cn1, en1, url = format_record_message(**r1)
-    # 末尾比赛形如 "...{person_flag}| {comp}{flag}" 或 "...| {comp}{flag}"
     comp_flag = country_flag(r1["comp_iso2"])
     comp_label = f"{r1['comp_name']}{comp_flag}"
-    # 去掉 "| <comp_label>" 尾巴
     cn1_no_comp = cn1[:-len(comp_label)].rstrip()
     if cn1_no_comp.endswith("|"):
         cn1_no_comp = cn1_no_comp[:-1].rstrip()
@@ -416,18 +433,29 @@ def _combine_diff_tag(events: list):
     if en1_no_comp.endswith("|"):
         en1_no_comp = en1_no_comp[:-1].rstrip()
 
-    # r2 缩减:无 "纪录快讯! "、无项目名、无人名、无比赛
-    cn2 = _reduce_segment_cn(r2)
-    en2 = _reduce_segment_en(r2)
+    # r2 缩减;NR 时段内含 flag(NR 前)
+    cn2 = _reduce_segment_cn(r2, include_flag=True)
+    en2 = _reduce_segment_en(r2, include_flag=True)
 
-    # r1 国旗后无空格 + "| " + r2 缩减 + " | " + 比赛
-    cn = f"{cn1_no_comp}| {cn2} | {comp_label}"
-    en = f"{en1_no_comp}| {en2} | {comp_label}"
+    # r2 是 NR 时,把 r1 末尾(人名后)的 person_flag 去掉,避免重复
+    r1_flag = country_flag(r1["person_iso2"])
+    if r2["tag"] == "NR":
+        if r1_flag and cn1_no_comp.endswith(r1_flag):
+            cn1_no_comp = cn1_no_comp[:-len(r1_flag)]
+        if r1_flag and en1_no_comp.endswith(r1_flag):
+            en1_no_comp = en1_no_comp[:-len(r1_flag)]
+
+    # 分隔符规则:r1 末尾是国旗 → "| "(无前空格);末尾是字母数字 → " | "(前有空格)
+    cn_sep = "| " if r1_flag and cn1_no_comp.endswith(r1_flag) else " | "
+    en_sep = "| " if r1_flag and en1_no_comp.endswith(r1_flag) else " | "
+
+    cn = f"{cn1_no_comp}{cn_sep}{cn2} | {comp_label}"
+    en = f"{en1_no_comp}{en_sep}{en2} | {comp_label}"
     return cn, en, url
 
 
-def _reduce_segment_cn(ev: dict) -> str:
-    """r2 的中文缩减片段(无项目/人名/国旗/比赛):<成绩><单次/平均><纪录类型><tag>/<WRn>"""
+def _reduce_segment_cn(ev: dict, *, include_flag: bool = False) -> str:
+    """r2 的中文缩减片段(无项目/人名/比赛)。NR 分支根据 include_flag 加 NR 前国旗。"""
     tag = ev["tag"]
     event_id = ev["event_id"]
     person_iso2 = ev["person_iso2"]
@@ -440,27 +468,29 @@ def _reduce_segment_cn(ev: dict) -> str:
         country_cn = COUNTRY_CN_MAP.get(person_iso2, ev.get("person_country_en") or person_iso2)
         rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
         suffix = f"/WR{rank}" if rank else ""
-        return f"{t}{type_cn}{country_cn}纪录NR{suffix}"
+        flag = country_flag(person_iso2) if include_flag else ""
+        return f"{t}{type_cn}{country_cn}纪录{flag}NR{suffix}"
     cr_abbr = _resolve_cr_abbr(tag, person_iso2)
     rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
     suffix = f"/WR{rank}" if rank else ""
     return f"{t}{type_cn}{CR_ABBR_CN.get(cr_abbr, '洲际纪录')}{cr_abbr}{suffix}"
 
 
-def _reduce_segment_en(ev: dict) -> str:
-    """r2 的英文缩减片段(无项目/人名/国旗/比赛)"""
+def _reduce_segment_en(ev: dict, *, include_flag: bool = False) -> str:
+    """r2 的英文缩减片段(无项目/人名/比赛)。NR 分支根据 include_flag 加 NR 前国旗。"""
     tag = ev["tag"]
     event_id = ev["event_id"]
     person_iso2 = ev["person_iso2"]
     t = format_time(ev["attempt_result"], event_id)
-    type_en = "Single" if ev["rec_type"] == "single" else "Avg"
+    type_en = _type_en(event_id, ev["rec_type"])
 
     if tag == "WR":
         return f"{t} WR {type_en}"
     if tag == "NR":
         rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
         suffix = f"/WR{rank}" if rank else ""
-        return f"{t} NR{suffix} {type_en}"
+        flag = country_flag(person_iso2) if include_flag else ""
+        return f"{t}{flag}NR{suffix} {type_en}"
     cr_abbr = _resolve_cr_abbr(tag, person_iso2)
     rank = RANKINGS.get_world_rank(event_id, ev["rec_type"], ev["attempt_result"])
     suffix = f"/WR{rank}" if rank else ""
