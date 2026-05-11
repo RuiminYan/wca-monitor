@@ -15,6 +15,7 @@
 
 ## 终端（pwsh 7）
 - 跑含中文的 .py 前先 `[Console]::OutputEncoding=[Text.Encoding]::UTF8; $env:PYTHONIOENCODING='utf-8'`，否则 GBK 编码报错或乱码
+- **写文件一律 LF only**（即 `\n` 不是 `\r\n`）。PowerShell 默认 CRLF；要 LF 用 `[IO.File]::WriteAllText($path, ($lines -join "`n") + "`n", [System.Text.UTF8Encoding]::new($false))`。CRLF 跑到 bash / Linux 工具里会让 `[ -d "$x" ]` / `read` 等解析挂(末尾 `\r` 当成名字一部分)。ssh 跑 heredoc 给远端 bash 前也要 `-replace "`r", ""`
 
 ## 改 `format_record_message`
 - 共享实现在 `record_format.py`，两个 record monitor 都用它；`wca_record_monitor.format_record_message(record)` 是 thin adapter
