@@ -84,7 +84,8 @@ def load_watched_keys(person_dir: str) -> set:
         if not d.is_dir():
             continue
         name = d.name
-        if name and name[0].isascii() and name[0].isalpha():
+        # Python 3.6 兼容:str.isascii 是 3.7+,用 ord 判断
+        if name and ord(name[0]) < 128 and name[0].isalpha():
             key = name[1:]
         else:
             key = name
