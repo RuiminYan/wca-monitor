@@ -1297,5 +1297,17 @@
   },
   "Seung-Hyuk Nahm": {
     "wca_id": "2013NAHM01"
+  },
+  "Seung Hyuk Nahm": {
+    "wca_id": "2013NAHM01",
+    "channel_id": "UCKOkDt4cH2gqRBxqNcZ9gSw"
+  },
+  "Timofei Tarasenko": {
+    "wca_id": "2019TARA09",
+    "channel_id": "UCp_ZBJ1SBzNbiSlVYHNVc5Q"
+  },
+  "Lim Hung": {
+    "wca_id": "2016HUNG08",
+    "channel_id": "UCTHftFWrhZP_2NkWbT31kiw"
   }
 }

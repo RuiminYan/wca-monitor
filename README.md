@@ -276,7 +276,7 @@ GET https://www.worldcubeassociation.org/api/v0/competitions
 - `requests` (`pip install requests`)
 - `google-api-python-client`, `google-auth-oauthlib` (`pip install google-api-python-client google-auth-oauthlib`)（仅邮件通知需要）
 
-## 服务器部署（阿里云 / Linux）
+## 服务器部署（Linux）
 
 将监控部署到云服务器，实现 7×24 无人值守运行。
 
