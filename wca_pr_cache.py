@@ -124,10 +124,15 @@ class PRCache:
 
     def is_tied_pr(self, wca_id: str, event_id: str, rec_type: str, value: int) -> bool:
         """value(cs)是否平了选手当前 PR(严格相等,首记录不算 tied)。"""
-        if not value or value <= 0:
-            return False
-        current = self.get_pr(wca_id, event_id, rec_type)
-        return current is not None and value == current
+        return is_tied_value(value, self.get_pr(wca_id, event_id, rec_type))
+
+
+def is_tied_value(value: int, current) -> bool:
+    """value(cs) == current(cs) 即 tied PR;current 为 None 或 value≤0 不算。
+    抽成模块级是为了 format_cli.py 等不持 PRCache 实例的调用方共享同一判定。"""
+    if not value or value <= 0:
+        return False
+    return current is not None and value == current
 
     def warm(self, wca_id: str, *, force: bool = False) -> bool:
         """从 WCA REST 拉单个选手到缓存。返回是否成功拉到。"""

@@ -21,7 +21,8 @@ $names = @(
     'wca_record_monitor.py', 'cubing_com_monitor.py', 'cubing_record_monitor.py',
     'wca_comp_monitor.py', 'email_notifier.py',
     'watched_wca_ids.py', 'wca_pr_cache.py', 'wca_pr_detector.py',
-    'test_push.py', 'download_competitions.py'
+    'test_push.py', 'download_competitions.py',
+    'format_cli.py'
 )
 $paths = $names | ForEach-Object { Join-Path $here $_ } | Where-Object { Test-Path -LiteralPath $_ }
 if ($paths.Count -eq 0) { throw "No deployable .py found in $here" }
