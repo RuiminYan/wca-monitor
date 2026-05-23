@@ -281,6 +281,7 @@ def format_record_message(
     comp_iso2: str,
     url: str,
     comp_name_en: str = None,
+    tied: bool = False,
 ):
     """
     参数化的纪录消息格式化。两个 monitor 共用。
@@ -317,8 +318,10 @@ def format_record_message(
         en = f"Breaking News! {time_str} {en_event}{person_flag}NR {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
     elif tag == "PR":
-        cn = f"纪录快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR {cn_name} | {cn_comp_label}"
-        en = f"Breaking News! {time_str} {en_event}{person_flag}PR {type_en} {en_name} | {en_comp_label}"
+        tied_cn = "(平)" if tied else ""
+        tied_en = "(Tied)" if tied else ""
+        cn = f"PR快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR{tied_cn} {cn_name} | {cn_comp_label}"
+        en = f"PR News! {time_str} {en_event}{person_flag}PR{tied_en} {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
     else:
         cr_abbr = tag if tag in CR_ABBR_CN else ISO2_TO_CR.get(person_iso2, "CR")
@@ -335,8 +338,14 @@ def format_record_message(
                 cn = cn.replace("NR", f"NR{suffix}", 1)
                 en = en.replace("NR", f"NR{suffix}", 1)
             elif tag == "PR":
-                cn = cn.replace("PR", f"PR{suffix}", 1)
-                en = en.replace("PR", f"PR{suffix}", 1)
+                # 用 {person_flag}PR(tied) 作锚点,避免命中"PR快讯! / PR News!"前缀里的 PR;
+                # tied 时 /WRn 要贴在 (平)/(Tied) 之后(样例: PR(平)/WR8)
+                tied_cn = "(平)" if tied else ""
+                tied_en = "(Tied)" if tied else ""
+                anchor_cn = f"{person_flag}PR{tied_cn}"
+                anchor_en = f"{person_flag}PR{tied_en}"
+                cn = cn.replace(anchor_cn, f"{anchor_cn}{suffix}", 1)
+                en = en.replace(anchor_en, f"{anchor_en}{suffix}", 1)
             else:
                 cn = cn.replace(cr_abbr, f"{cr_abbr}{suffix}", 1)
                 en = en.replace(cr_abbr, f"{cr_abbr}{suffix}", 1)
@@ -438,10 +447,16 @@ def _combine_same_tag(events: list):
     rs_s_en = f" {rs_s}" if rs_s else ""
     rs_a_en = f" {rs_a}" if rs_a else ""
 
-    # 仅 WR 用全大写 "BREAKING NEWS!",CR/NR 用 "Breaking News!"
-    en_prefix = "BREAKING NEWS!" if tag == "WR" else "Breaking News!"
+    # 仅 WR 用全大写 "BREAKING NEWS!",PR 用 "PR快讯!" / "PR News!",CR/NR 用 "Breaking News!"
+    if tag == "WR":
+        en_prefix = "BREAKING NEWS!"
+    elif tag == "PR":
+        en_prefix = "PR News!"
+    else:
+        en_prefix = "Breaking News!"
+    cn_prefix = "PR快讯!" if tag == "PR" else "纪录快讯!"
 
-    cn = (f"纪录快讯! {t_s}单次{rs_s}, {t_a}平均{rs_a}"
+    cn = (f"{cn_prefix} {t_s}单次{rs_s}, {t_a}平均{rs_a}"
           f"{cn_event}双{type_cn}{person_flag}{display_tag} {cn_name} | {cn_comp_label}")
     en = (f"{en_prefix} {t_s} Single{rs_s_en}, {t_a} {avg_en}{rs_a_en} "
           f"{en_event}{person_flag}Double {type_en} {en_name} | {en_comp_label}")

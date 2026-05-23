@@ -115,11 +115,19 @@ class PRCache:
             _save(self._data)
 
     def is_pr(self, wca_id: str, event_id: str, rec_type: str, value: int) -> bool:
-        """value(cs)是否破了选手当前 PR。注意 PR 不存在时同样判破(首记录也算 PR)。"""
+        """value(cs)是否破了选手当前 PR(含 tied)。WCA Live 把 tied PR 也标橙色 PR
+        角标,用户期望同样收到通知。注意 PR 不存在时同样判破(首记录也算 PR)。"""
         if not value or value <= 0:
             return False
         current = self.get_pr(wca_id, event_id, rec_type)
-        return current is None or value < current
+        return current is None or value <= current
+
+    def is_tied_pr(self, wca_id: str, event_id: str, rec_type: str, value: int) -> bool:
+        """value(cs)是否平了选手当前 PR(严格相等,首记录不算 tied)。"""
+        if not value or value <= 0:
+            return False
+        current = self.get_pr(wca_id, event_id, rec_type)
+        return current is not None and value == current
 
     def warm(self, wca_id: str, *, force: bool = False) -> bool:
         """从 WCA REST 拉单个选手到缓存。返回是否成功拉到。"""

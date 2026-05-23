@@ -188,6 +188,7 @@ def _to_format_kwargs(cand: dict) -> dict:
         "person_country_en": cand["person_country_en"],
         "comp_name": cand["comp_name"],
         "comp_iso2": cand["comp_iso2"],
+        "tied": cand.get("tied", False),
         "url": (f"https://live.worldcubeassociation.org/competitions/"
                 f"{cand['comp_id']}/rounds/{cand['round_id']}"),
     }
@@ -253,7 +254,9 @@ def scan_and_push(config: dict, pr_cache, watched_ids: set, known_pr_ids: set,
                     continue
                 # 该项是 WR / CR / NR(regional record),交由 record 路径推送。
                 # 仍要把 cache 同步到这个新基线,否则后续会按"小于旧 PR"误触发。
-                if cand["record_tag"]:
+                # 注意 WCA Live 也用 singleRecordTag="PR" 标橙色 PR 角标,但 PR
+                # 走的就是这个文件,不能当成 regional record 跳过。
+                if cand["record_tag"] and cand["record_tag"] != "PR":
                     pr_cache.set_pr(cand["wcaid"], cand["event_id"],
                                     cand["rec_type"], cand["value"])
                     known_pr_ids.add(uid)
@@ -261,6 +264,9 @@ def scan_and_push(config: dict, pr_cache, watched_ids: set, known_pr_ids: set,
                 if not pr_cache.is_pr(cand["wcaid"], cand["event_id"],
                                       cand["rec_type"], cand["value"]):
                     continue
+                cand["tied"] = pr_cache.is_tied_pr(
+                    cand["wcaid"], cand["event_id"],
+                    cand["rec_type"], cand["value"])
                 fresh_by_group.setdefault(_group_key(cand), []).append(cand)
 
     new_count = 0
