@@ -321,11 +321,15 @@ def format_record_message(
     elif tag == "PR":
         tied_cn = "(平)" if tied else ""
         tied_en = "(Tied)" if tied else ""
-        # pr_rank > 1 = 历史第 N 快(非真破 PR);直接把 PR 改成 PR<rank>,
-        # 不再叠 /WRn 后缀(下方 if rank 块会跳过)。1 / 0 / 缺省都按真破 PR 处理。
-        rank_suffix = str(pr_rank) if pr_rank and pr_rank > 1 else ""
-        cn = f"PR快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR{rank_suffix}{tied_cn} {cn_name} | {cn_comp_label}"
-        en = f"PR News! {time_str} {en_event}{person_flag}PR{rank_suffix}{tied_en} {type_en} {en_name} | {en_comp_label}"
+        if pr_rank and pr_rank > 1:
+            # 非真破 PR(历史第 N 快):走"成绩快讯/Result News"模板,无"个人纪录"/person_flag/WR rank;
+            # 选手名前直接空格,不带国旗(比赛名后仍带 comp_flag)。
+            # EN: rank 前置(数字后立刻 PR<rank>,再 Single/Avg)
+            cn = f"成绩快讯! {time_str}{cn_event}{type_cn}PR{pr_rank} {cn_name} | {cn_comp_label}"
+            en = f"Result News! {time_str} PR{pr_rank} {type_en} {en_event} {en_name} | {en_comp_label}"
+        else:
+            cn = f"PR快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR{tied_cn} {cn_name} | {cn_comp_label}"
+            en = f"PR News! {time_str} {en_event}{person_flag}PR{tied_en} {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
     else:
         cr_abbr = tag if tag in CR_ABBR_CN else ISO2_TO_CR.get(person_iso2, "CR")
@@ -430,12 +434,24 @@ def _combine_same_tag(events: list):
 
     t_s = format_time(single["attempt_result"], event_id)
     t_a = format_time(avg["attempt_result"], event_id)
+    avg_en = "Mean" if event_id in _MEAN_EVENTS else "Avg"
+
+    # tag=PR 且任一 pr_rank>1 = 非真破 PR,走"成绩快讯"模板(无"双个人纪录"/person_flag)
+    s_rank = single.get("pr_rank") or 1
+    a_rank = avg.get("pr_rank") or 1
+    if tag == "PR" and (s_rank > 1 or a_rank > 1):
+        rs_s = f"PR{s_rank}" if s_rank > 1 else "PR"
+        rs_a = f"PR{a_rank}" if a_rank > 1 else "PR"
+        cn = (f"成绩快讯! {t_s}单次{rs_s}, {t_a}平均{rs_a}"
+              f"{cn_event} {cn_name} | {cn_comp_label}")
+        en = (f"Result News! {t_s} {rs_s} Single, {t_a} {rs_a} {avg_en} "
+              f"{en_event} {en_name} | {en_comp_label}")
+        return cn, en, single["url"]
+
     rs_s = _wr_suffix(event_id, "single", single["attempt_result"], tag)
     rs_a = _wr_suffix(event_id, "average", avg["attempt_result"], tag)
 
     # 纪录类型描述
-    avg_en = "Mean" if event_id in _MEAN_EVENTS else "Avg"
-
     if tag == "WR":
         type_cn, type_en, display_tag = "世界纪录", "WR", "WR"
     elif tag == "NR":
