@@ -282,6 +282,7 @@ def format_record_message(
     url: str,
     comp_name_en: str = None,
     tied: bool = False,
+    pr_rank: int = 1,
 ):
     """
     参数化的纪录消息格式化。两个 monitor 共用。
@@ -320,8 +321,11 @@ def format_record_message(
     elif tag == "PR":
         tied_cn = "(平)" if tied else ""
         tied_en = "(Tied)" if tied else ""
-        cn = f"PR快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR{tied_cn} {cn_name} | {cn_comp_label}"
-        en = f"PR News! {time_str} {en_event}{person_flag}PR{tied_en} {type_en} {en_name} | {en_comp_label}"
+        # pr_rank > 1 = 历史第 N 快(非真破 PR);直接把 PR 改成 PR<rank>,
+        # 不再叠 /WRn 后缀(下方 if rank 块会跳过)。1 / 0 / 缺省都按真破 PR 处理。
+        rank_suffix = str(pr_rank) if pr_rank and pr_rank > 1 else ""
+        cn = f"PR快讯! {time_str}{cn_event}{type_cn}个人纪录{person_flag}PR{rank_suffix}{tied_cn} {cn_name} | {cn_comp_label}"
+        en = f"PR News! {time_str} {en_event}{person_flag}PR{rank_suffix}{tied_en} {type_en} {en_name} | {en_comp_label}"
         cr_abbr = None
     else:
         cr_abbr = tag if tag in CR_ABBR_CN else ISO2_TO_CR.get(person_iso2, "CR")
@@ -329,8 +333,9 @@ def format_record_message(
         cn = f"纪录快讯! {time_str}{cn_event}{type_cn}{cr_cn}{cr_abbr} {cn_name}{person_flag}| {cn_comp_label}"
         en = f"Breaking News! {time_str} {en_event} {cr_abbr} {type_en} {en_name}{person_flag}| {en_comp_label}"
 
-    # 在 NR / CR / PR 后追加 /WRxx(WR 已含"世界纪录"字样,不再叠加)
-    if tag != "WR":
+    # 在 NR / CR / PR 后追加 /WRxx(WR 已含"世界纪录"字样,不再叠加;
+    # PR 已经标了 PR<rank> 的也跳过,避免出现 PR39/WR123)
+    if tag != "WR" and not (tag == "PR" and pr_rank and pr_rank > 1):
         rank = RANKINGS.get_world_rank(event_id, rec_type, attempt_result)
         if rank:
             suffix = f"/WR{rank}"
